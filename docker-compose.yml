@@ -1,0 +1,51 @@
+version: '3.8'
+
+services:
+  #1. Baza danych PostgreSQL
+  db:
+    image: postgres:15-alpine
+    container_name: workflow_db
+    restart: always
+    environment:
+      - POSTGRES_USER=workflow_user
+      - POSTGRES_PASSWORD=workflow_password
+      - POSTGRES_DB=workflow_engine
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  #2. Silnik Backendowy FastAPI
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: workflow_backend
+    environment:
+      - DATABASE_URL=postgresql://workflow_user:workflow_password@workflow_db:5432/workflow_engine
+    ports:
+      - "8000:8000"
+    volumes:
+      - backend_data:/app
+    depends_on:
+      - db
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+
+  #3. Frontend React
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: workflow_frontend
+    environment:
+      - VITE_API_URL=https://localhost:8000
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend:/app
+      - ./app/node_modules
+    command: npm run dev -- --host 0.0.0.0
+
+volumes:
+  postgres_data:

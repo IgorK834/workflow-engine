@@ -1,6 +1,9 @@
-cat << 'EOF' > backend/requirements.txt
 # Quality & Formatting
 black==24.2.0
 ruff==0.3.2
 mypy==1.9.0
-EOF
+
+# Baza danych
+sqlalchemy>=2.0.36
+asyncpg>=0.30.0
+greenlet>=3.1.1

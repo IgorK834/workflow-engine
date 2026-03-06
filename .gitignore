@@ -1,4 +1,3 @@
-cat << 'EOF' > .gitignore
 # Środowiska i zależności
 node_modules/
 venv/

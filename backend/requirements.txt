@@ -1,0 +1,6 @@
+cat << 'EOF' > backend/requirements.txt
+# Quality & Formatting
+black==24.2.0
+ruff==0.3.2
+mypy==1.9.0
+EOF

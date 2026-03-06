@@ -1,0 +1,19 @@
+cat << 'EOF' > .gitignore
+# Środowiska i zależności
+node_modules/
+venv/
+env/
+.env
+
+# Cache Pythona
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Pliki systemowe
+.DS_Store
+Thumbs.db
+EOF

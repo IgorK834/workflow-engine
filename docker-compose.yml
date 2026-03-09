@@ -22,7 +22,7 @@ services:
       dockerfile: Dockerfile
     container_name: workflow_backend
     environment:
-      - DATABASE_URL=postgresql://workflow_user:workflow_password@workflow_db:5432/workflow_engine
+      - DATABASE_URL=postgresql+asyncpg://workflow_user:workflow_password@db:5432/workflow_engine
     ports:
       - "8000:8000"
     volumes:
@@ -44,7 +44,7 @@ services:
       - "5173:5173"
     volumes:
       - ./frontend:/app
-      - ./app/node_modules
+      - /app/node_modules
     command: npm run dev -- --host 0.0.0.0
 
 volumes:

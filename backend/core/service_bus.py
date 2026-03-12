@@ -4,6 +4,7 @@ import asyncio
 from typing import Any
 from azure.servicebus.aio import ServiceBusClient
 from azure.servicebus import ServiceBusMessage
+from .app_config import is_feature_enabled, FeatureFlags
 
 # Pobieramy konfigurację ze zmiennych środowiskowych
 CONNECTION_STR = os.getenv("SERVICEBUS_CONNECTION_STR")
@@ -33,11 +34,23 @@ async def process_message(msg: ServiceBusMessage) -> bool:
     """Symulacja przetwarzania ciękiego zadania"""
     try:
         task_data = json.loads(str(msg))
+
+        is_global_active = await is_feature_enabled(FeatureFlags.CIRCUIT_BREAKER_GLOBAL)
+
+        if not is_global_active:
+            print(
+                f"[Worker] ZADANIE ODRZUCONE! Globalny Circuit Breaker odciął zasilanie: {task_data}"
+            )
+            return False
+
         print(f"Przetwarzanie zadania: {task_data}")
+
         # Tutaj w przyszłości podepniemy State Manager i wykonanie konkretnego skryptu/API
         await asyncio.sleep(2)
+
         print(f"Zakończono przetwarzanie zadania: {task_data}")
         return True
+
     except Exception as e:
         print(f"Wystąpił błąd podczas przetwarzania zadania: {e}")
         return False

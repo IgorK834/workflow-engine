@@ -12,3 +12,6 @@ greenlet>=3.1.1
 fastapi>=0.110.0
 pydantic>=2.6.0
 uvicorn>=0.28.0
+
+# Chmura Azure
+azure-servicebus>=7.12.1

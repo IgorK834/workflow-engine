@@ -1,16 +1,20 @@
+import asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .database import enigne, Base
 from .api import workflows
+from .core.service_bus import start_message_listener
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     async with enigne.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+    worker_task = asyncio.create_task(start_message_listener())
     yield
+    worker_task.cancel()
     await enigne.dispose()
 
 

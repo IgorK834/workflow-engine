@@ -22,11 +22,11 @@ services:
       dockerfile: Dockerfile
     container_name: workflow_backend
     environment:
-      - DATABASE_URL=postgresql+asyncpg://workflow_user:workflow_password@db:5432/workflow_engine
-      - AZURE_SERVICEBUS_CONNECTION_STRING=
+      - DATABASE_URL=${DATABASE_URL}
       - AZURE_SERVICEBUS_QUEUE_NAME=tasks
-      - AZURE_APP_CONFIG_CONNECTION_STRING=
-      - APPLICATIONINSIGHTS_CONNECTION_STRING=
+      - AZURE_SERVICEBUS_CONNECTION_STRING=${AZURE_SERVICEBUS_CONNECTION_STRING}
+      - AZURE_APP_CONFIG_CONNECTION_STRING=${AZURE_APP_CONFIG_CONNECTION_STRING}
+      - APPLICATIONINSIGHTS_CONNECTION_STRING=${APPLICATIONINSIGHTS_CONNECTION_STRING}
     ports:
       - "8000:8000"
     volumes:

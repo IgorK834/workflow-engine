@@ -2,6 +2,10 @@ import asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+import os
+
+from azure.monitor.opentelemetry import configure_azure_monitor
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 
 from .database import enigne, Base
 from .api import workflows
@@ -39,3 +43,11 @@ app.include_router(workflows.router, prefix="/api/v1")
 @app.get("/health", tags=["System"])
 async def health_check():
     return {"status": "healthy", "service": "Workflow Engine ASGI"}
+
+
+if os.getenv("APPLICATIONINSIGHTS_CONNECTION_STRING"):
+    configure_azure_monitor()
+    FastAPIInstrumentor.instrument_app(app)
+    print("Azure Application Insights zintegrowane poprawnie!")
+else:
+    print("Brak APPLICATIONINSIGHTS_CONNECTION_STRING - telemetria wyłączona.")

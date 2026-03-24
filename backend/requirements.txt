@@ -16,3 +16,7 @@ uvicorn>=0.28.0
 # Chmura Azure
 azure-servicebus>=7.12.1
 azure-appconfiguration>=1.4.0
+
+# Azure & Telemetria
+azure-monitor-opentelemetry>=1.4.0
+opentelemetry-instrumentation-fastapi>=0.45b0

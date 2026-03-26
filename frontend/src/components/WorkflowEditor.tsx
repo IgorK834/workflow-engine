@@ -26,6 +26,7 @@ import {
 import TriggerNode from '../nodes/TriggerNode';
 import LogicNode from '../nodes/LogicNode';
 import ActionNode from '../nodes/ActionNode';
+import { createWorkflow } from '../api/workflows';
 
 const nodeTypes = {
   trigger: TriggerNode,
@@ -43,17 +44,17 @@ interface WorkflowEditorProps {
 const nodeBlocks = [
   {
     category: 'Wyzwalacze',
-    items: [{ type: 'trigger', label: 'Odbierz Webhook', icon: Webhook, description: 'HTTP endpoint' }],
+    items: [{ type: 'trigger', subtype: 'webhook', label: 'Odbierz Webhook', icon: Webhook, description: 'HTTP endpoint' }],
   },
   {
     category: 'Bramki logiczne',
-    items: [{ type: 'logic', label: 'Jesli / To (Warunek)', icon: GitBranch, description: 'Rozgalezienie' }],
+    items: [{ type: 'logic', subtype: 'if_else', label: 'Jesli / To (Warunek)', icon: GitBranch, description: 'Rozgalezienie' }],
   },
   {
     category: 'Akcje',
     items: [
-      { type: 'action', label: 'Wyslij na Slack', icon: MessageSquare, description: 'Powiadomienie' },
-      { type: 'action', label: 'Zapisz do Bazy', icon: Database, description: 'INSERT/UPDATE' },
+      { type: 'action', subtype: 'slack_msg', label: 'Wyslij na Slack', icon: MessageSquare, description: 'Powiadomienie' },
+      { type: 'action', subtype: 'db_insert', label: 'Zapisz do Bazy', icon: Database, description: 'INSERT/UPDATE' },
     ],
   },
 ];
@@ -68,6 +69,18 @@ export default function WorkflowEditor({ onBack }: WorkflowEditorProps) {
     [setEdges]
   );
 
+  const isValidConnection = useCallback(
+    (connection: Connection | Edge) => {
+      if (connection.source === connection.target) return false;
+
+      const targetNode = nodes.find((n) => n.id === connection.target);
+      if (targetNode?.type === 'trigger') return false;
+
+      return true;
+    },
+    [nodes]
+  )
+
   const onDragOver = useCallback((event: React.DragEvent) => {
     event.preventDefault();
     event.dataTransfer.dropEffect = 'move';
@@ -77,6 +90,7 @@ export default function WorkflowEditor({ onBack }: WorkflowEditorProps) {
     (event: React.DragEvent) => {
       event.preventDefault();
       const type = event.dataTransfer.getData('application/reactflow/type');
+      const subtype = event.dataTransfer.getData('application/reactflow/subtype');
       const label = event.dataTransfer.getData('application/reactflow/label');
       const description = event.dataTransfer.getData('application/reactflow/description');
 
@@ -91,7 +105,7 @@ export default function WorkflowEditor({ onBack }: WorkflowEditorProps) {
         id: getId(),
         type,
         position,
-        data: { label, description: description || 'Przeciagniety klocek' },
+        data: { label, subtype, config: {}, description: description || 'Przeciągnięty klocek' },
       };
 
       setNodes((nds) => nds.concat(newNode));
@@ -99,11 +113,56 @@ export default function WorkflowEditor({ onBack }: WorkflowEditorProps) {
     [reactFlowInstance, setNodes]
   );
 
-  const onDragStart = (event: React.DragEvent, nodeType: string, label: string, description: string) => {
+  const onDragStart = (event: React.DragEvent, nodeType: string, subtype: string, label: string, description: string) => {
     event.dataTransfer.setData('application/reactflow/type', nodeType);
+    event.dataTransfer.setData('application/reactflow/subtype', subtype);
     event.dataTransfer.setData('application/reactflow/label', label);
     event.dataTransfer.setData('application/reactflow/description', description);
     event.dataTransfer.effectAllowed = 'move';
+  };
+
+  const handleSave = async () => {
+    // Walidacja główna
+    const hasTrigger = nodes.some(n => n.type === 'trigger');
+    if (!hasTrigger) {
+      alert('Błąd: Twój proces musi zawierać co najmniej jeden wyzwalacz aby mógł wystartować!');
+      return;
+    }
+
+    // Serializacja danych do formatu zgodnego ze schematem
+    const payload = {
+      name: `Nowy Workflow - ${new Date().toLocaleTimeString()}`,
+      description: "Wygenerowano z kreatora",
+      graph_json: {
+        nodes: nodes.map(n => ({
+          id: n.id,
+          type: n.type,
+          position: n.position,
+          data: {
+            subtype: n.data.subtype,
+            label: n.data.label,
+            config: n.data.config || {}
+          }
+        })),
+        edges: edges.map(e => ({
+          id: e.id,
+          source: e.source,
+          target: e.target,
+          sourceHandle: e.sourceHandle || null,
+          targetHandle: e.targetHandle || null
+        }))
+      }
+    };
+
+    // Wysyłanie do API
+    try {
+      console.log("Wysyłam payload: ", payload);
+      await createWorkflow(payload);
+      alert('Proces pomyślnie zapisany!')
+    } catch (error) {
+      console.error(error);
+      alert('Wystąpił błąd podczas zapisu do bazy danych!')
+    }
   };
 
   return (
@@ -121,7 +180,7 @@ export default function WorkflowEditor({ onBack }: WorkflowEditorProps) {
           <h2 className="text-lg font-medium text-foreground">Nowy Workflow</h2>
         </div>
         <div className="flex items-center gap-3">
-          <button className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-muted-foreground bg-white border border-border rounded-lg hover:bg-muted transition-colors">
+          <button onClick={handleSave} className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-muted-foreground bg-white border border-border rounded-lg hover:bg-muted transition-colors">
             <Save className="w-4 h-4" />
             Zapisz
           </button>
@@ -164,7 +223,7 @@ export default function WorkflowEditor({ onBack }: WorkflowEditorProps) {
                       <div
                         key={item.label}
                         className={`p-3 border rounded-lg cursor-grab transition-colors ${bgColors[item.type as keyof typeof bgColors]}`}
-                        onDragStart={(e) => onDragStart(e, item.type, item.label, item.description)}
+                        onDragStart={(e) => onDragStart(e, item.type, item.subtype, item.label, item.description)}
                         draggable
                       >
                         <div className="flex items-center gap-2">
@@ -192,6 +251,7 @@ export default function WorkflowEditor({ onBack }: WorkflowEditorProps) {
             onDrop={onDrop}
             onDragOver={onDragOver}
             nodeTypes={nodeTypes}
+            isValidConnection={isValidConnection}
             fitView
             defaultEdgeOptions={{
               style: { strokeWidth: 2, stroke: '#94a3b8' },

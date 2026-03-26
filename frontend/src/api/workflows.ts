@@ -18,6 +18,13 @@ async function apiRequest<T>(path: string, init?: RequestInit): Promise<T> {
   return (await response.json()) as T;
 }
 
+export async function createWorkflow(workflowData: any): Promise<Workflow> {
+  return apiRequest<Workflow>('/workflows/', {
+    method: 'POST',
+    body: JSON.stringify(workflowData),
+  })
+}
+
 export async function listWorkflows(): Promise<Workflow[]> {
   return apiRequest<Workflow[]>('/workflows/');
 }

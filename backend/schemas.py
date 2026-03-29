@@ -41,7 +41,7 @@ class Edge(BaseModel):
         None,
         description="Opcjonalny uchwyt wyjściowy (np. 'true', 'false' dla bramki IF)",
     )
-    targerHandle: str | None = Field(None, description="Opcjonalny uchwyt wejściowy")
+    targetHandle: str | None = Field(None, description="Opcjonalny uchwyt wejściowy")
 
 
 # Cały Graf
@@ -66,3 +66,13 @@ class WorkflowResponse(WorkflowCreate):
 
     # Umozliwia czytanie prosto z modeli SQLAlchemy
     model_config = ConfigDict(from_attributes=True)
+
+# Schemat zwracany przez API dla historii uruchomień
+class WorkflowExecutionResponse(BaseModel):
+    id: uuid.UUID
+    workflow_id: uuid.UUID
+    status: str
+    started_at: datetime
+    finished_at: datetime | None = None
+
+    model_config = ConfigDict(from_atributes=True)

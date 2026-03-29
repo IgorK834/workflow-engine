@@ -26,7 +26,7 @@ class StateManager:
             start_time=utc_now(),
         )
         self.db.add(execution)
-        await self.db.comit()
+        await self.db.commit()
         await self.db.refresh(execution)
         return execution
 

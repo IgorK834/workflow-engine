@@ -72,13 +72,13 @@ class ExecutionEngine:
 
                 output_data = await run_node_task(
                     subtype=node.data.subtype,
-                    config=node.data.subtype,
+                    config=node.data.config,
                     input_data=input_data
                 )
 
                 node_outputs[node_id] = output_data
 
-                await self.state_manager.update_execution_status(
+                await self.state_manager.update_step_status(
                     step_id=step.id,
                     status=ExecutionStatus.COMPLETED,
                     output_data=output_data
@@ -87,7 +87,7 @@ class ExecutionEngine:
             except Exception as e:
                 logger.error(f"[{self.execution_id}] Błąd węzła {node_id}: {e}")
 
-                await self.state_manager.update_execution_status(
+                await self.state_manager.update_step_status(
                     step_id=step.id,
                     status=ExecutionStatus.FAILED,
                     error_message=str(e)

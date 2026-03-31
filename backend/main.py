@@ -24,7 +24,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Workflow Engine API",
-    description="Rozproszony silnik automatyzacji procesów w architektórze asynchronicznej.",
+    description="Rozproszony silnik automatyzacji procesów w architekturze asynchronicznej.",
     version="0.1.0",
     lifespan=lifespan,
 )

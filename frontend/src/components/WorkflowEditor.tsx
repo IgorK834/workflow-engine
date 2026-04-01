@@ -301,7 +301,7 @@ export default function WorkflowEditor({ onBack }: WorkflowEditorProps) {
             </div>
           </div>
         );
-        
+
       case 'db_insert':
         return (
           <div className="space-y-4">
@@ -353,6 +353,12 @@ export default function WorkflowEditor({ onBack }: WorkflowEditorProps) {
                 value={config.body || ''}
                 onChange={(e) => updateNodeConfig('body', e.target.value)}
               />
+            </div>
+            
+            <div className="p-3 mt-4 bg-muted/50 rounded-lg border border-border">
+              <p className="text-xs text-muted-foreground leading-relaxed text-center">
+                System użyje globalnych ustawień SMTP z zakładki <span className="font-semibold text-foreground">Settings</span> do wysłania tej wiadomości.
+              </p>
             </div>
           </div>
         );

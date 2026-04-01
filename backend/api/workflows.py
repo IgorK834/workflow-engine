@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 import uuid
@@ -62,3 +62,27 @@ async def execute_workflow(workflow_id: uuid.UUID, db: AsyncSession = Depends(ge
     await db.refresh(execution)
 
     return execution
+
+@router.post("/{workflow_id}/trigger")
+async def trigger_webhook(workflow_id: uuid.UUID, request: Request, db: AsyncSession = Depends(get_db)):
+    """Publiczny endpoint nasłuchujący na dane"""
+    result = await db.execute(select(Workflow).where(Workflow.id == workflow_id))
+    workflow = result.scalar_one_or_none()
+
+    if not workflow:
+        raise HTTPException(status_code=404, detail="Nie znaleziono procesu o podanym ID")
+    
+    try:
+        payload = await request.json()
+    except Exception:
+        payload = {}
+
+    state_manager = StateManager(db)
+    execution = await state_manager.initialize_execution(workflow_id)
+
+    engine = ExecutionEngine(db, execution.id)
+
+    await engine.run(workflow.graph_json, initial_payload=payload)
+
+    await db.refresh(execution)
+    return {"status": "success", "execution_id": str(execution.id), "payload_received": payload}

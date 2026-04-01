@@ -212,10 +212,17 @@ export default function WorkflowEditor({ onBack }: WorkflowEditorProps) {
         return (
           <div className="space-y-4">
             <div className="p-4 bg-primary/5 rounded-lg border border-primary/20">
-              <h4 className="text-sm font-semibold text-foreground mb-1">Twój adres Webhook</h4>
+              <h4 className="text-sm font-semibold text-foreground mb-2">Twój adres Webhook</h4>
+              
+              <div className="bg-white p-3 border border-border rounded-md text-xs font-mono text-muted-foreground break-all mb-3 shadow-sm">
+                [POST] /api/v1/workflows/<span className="text-primary font-bold">{"{ID_PROCESU}"}</span>/trigger
+              </div>
+              
+              <p className="text-xs text-muted-foreground leading-relaxed mb-2">
+                Zapisz swój proces, a następnie skopiuj jego ID z Dashboardu i wstaw w miejsce zaznaczone na niebiesko.
+              </p>
               <p className="text-xs text-muted-foreground leading-relaxed">
-                Adres URL (link) zostanie wygenerowany automatycznie po zapisaniu i aktywacji tego procesu.
-                Wystarczy, że wyślesz na niego dowolne dane, a proces wystartuje.
+                Aby uruchomić proces, system zewnętrzny (np. sklep) musi wysłać żądanie HTTP na powyższy adres. Otrzymany format JSON zostanie zmapowany na zmienne w Twoich klockach.
               </p>
             </div>
           </div>

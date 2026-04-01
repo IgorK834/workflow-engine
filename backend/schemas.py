@@ -67,6 +67,7 @@ class WorkflowResponse(WorkflowCreate):
     # Umozliwia czytanie prosto z modeli SQLAlchemy
     model_config = ConfigDict(from_attributes=True)
 
+
 # Schemat zwracany przez API dla historii uruchomień
 class WorkflowExecutionResponse(BaseModel):
     id: uuid.UUID
@@ -76,3 +77,18 @@ class WorkflowExecutionResponse(BaseModel):
     finished_at: datetime | None = None
 
     model_config = ConfigDict(from_atributes=True)
+
+
+# Schemat zapisu nowych kluczy API
+class SystemSettignCreate(BaseModel):
+    key: str = Field(..., description="Klucz ustawienia, np. 'smtp_profile'")
+    value: dict[str, Any] = Field(..., description="Wartość w formacjie JSON")
+
+
+# Schemat zapisu konfiguracji klucza API
+class SystemSettignResponse(SystemSettignCreate):
+    id: uuid.UUID
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)

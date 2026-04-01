@@ -97,3 +97,21 @@ class ExecutionStep(Base):
     )
 
     execution: Mapped["WorkflowExecution"] = relationship(back_populates="steps")
+
+
+class SystemSetting(Base):
+    __tablename__ = "system_settings"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    key: Mapped[str] = mapped_column(
+        String(100), unique=True, index=True, nullable=True
+    )
+    value: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now
+    )

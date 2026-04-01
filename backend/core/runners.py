@@ -2,7 +2,14 @@ import logging
 import asyncio
 import httpx
 import json
+import aiosmtplib
+
+from email.message import EmailMessage
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 from typing import Any
+
+from ..models import SystemSetting
 
 # Konfiguracja loggera
 logging.basicConfig(level=logging.INFO)
@@ -101,15 +108,50 @@ async def execute_http_request(config: dict[str, Any], input_data: dict[str, Any
             "request_url": url
         }
     
-async def execute_send_email(config: dict[str, Any], input_data: dict[str, Any]) -> dict[str, Any]:
-    """Symulacja wysyłki email"""
+async def execute_send_email(config: dict[str, Any], input_data: dict[str, Any], db: AsyncSession = None) -> dict[str, Any]:
+    """Wysyłka email"""
+    if not db:
+        raise ValueError("Brak połączenia z bazą danych")
+    
+    result = await db.execute(select(SystemSetting).where(SystemSetting.key == "smtp_profile"))
+    setting = result.scalar_one_or_none()
+
+    if not setting or not setting.value:
+        raise ValueError("Skonfiguruj profil SMTP w ustawieniach!")
+    
+    smtp_config = setting.value
+    server = smtp_config.get("server")
+    port = int(smtp_config.get("port", 587))
+    login = smtp_config.get("login")
+    password = smtp_config.get("password")
+
     recipient = config.get("recipient", "example@example.com")
     subject = config.get("subject", "Temat")
     body = config.get("body", "Treść")
 
-    logger.info(f"[EMAIL] Wysyłka na: {recipient} | Temat: {subject}")
+    logger.inf(f"[EMAIL] Rozpoczynam wysyłkę na: {recipient} | Temat: {subject} przez serwer {server}:{port}")
 
-    return {"status": "email_sent", "recipient": recipient, "subject": subject}
+    message = EmailMessage()
+    message["From"] = login
+    message["To"] = recipient
+    message["Subject"] = subject
+    message.set_content(body)
+
+    try:
+        await aiosmtplib.send(
+            message,
+            hostname=server,
+            port=port,
+            username=login,
+            password=password,
+            start_tls=True,
+        )
+        
+        logger.info("[EMAIL] Wysłano pomyślnie!")
+        return {"status": "email_sent", "recipient": recipient, "subject": subject}
+    except Exception as e:
+        logger.error(f"[EMAIL] Błąd wysyłki SMTP: {str(e)}")
+        raise ValueError(f"Wsytąpił błąd podczas wysyłania e-maila: {str(e)}")
 
 async def execute_delay(config: dict[str, Any], input_data: dict[str, Any]) -> dict[str, Any]:
     """Wstrzymujemy wykonanie procesu na podany czas"""
@@ -158,5 +200,10 @@ async def run_node_task(subtype: str, config: dict[str, Any], input_data: dict[s
 
     if not runner_func:
         raise ValueError(f"Brak zdefiniowanego runnera dla klocka o typie: '{subtype}'")
+    
+    if subtype == "send_email":
+        return await runner_func(config, input_data, db=db)
+    else:
+        return await runner_func(config, input_data)
     
     return await runner_func(config, input_data)

@@ -73,7 +73,8 @@ class ExecutionEngine:
                 output_data = await run_node_task(
                     subtype=node.data.subtype,
                     config=node.data.config,
-                    input_data=input_data
+                    input_data=input_data,
+                    db=self.db
                 )
 
                 node_outputs[node_id] = output_data

@@ -76,7 +76,7 @@ class WorkflowExecutionResponse(BaseModel):
     started_at: datetime
     finished_at: datetime | None = None
 
-    model_config = ConfigDict(from_atributes=True)
+    model_config = ConfigDict(from_attributes=True)
 
 
 # Schemat zapisu nowych kluczy API

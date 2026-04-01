@@ -8,7 +8,7 @@ from azure.monitor.opentelemetry import configure_azure_monitor
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 
 from .database import enigne, Base
-from .api import workflows
+from .api import workflows, settings
 from .core.service_bus import start_message_listener
 
 
@@ -38,6 +38,7 @@ app.add_middleware(
 )
 
 app.include_router(workflows.router, prefix="/api/v1")
+app.include_router(settings.router, prefix="/api/v1")
 
 
 @app.get("/health", tags=["System"])

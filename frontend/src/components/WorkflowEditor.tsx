@@ -23,7 +23,11 @@ import {
   MessageSquare,
   Database,
   Settings2,
-  X
+  X,
+  Globe,
+  Mail,
+  Clock,
+  FileJson
 } from 'lucide-react';
 import TriggerNode from '../nodes/TriggerNode';
 import LogicNode from '../nodes/LogicNode';
@@ -49,13 +53,19 @@ const nodeBlocks = [
     items: [{ type: 'trigger', subtype: 'webhook', label: 'Odbierz Webhook', icon: Webhook, description: 'HTTP endpoint' }],
   },
   {
-    category: 'Bramki logiczne',
-    items: [{ type: 'logic', subtype: 'if_else', label: 'Jeśli / To (Warunek)', icon: GitBranch, description: 'Rozgałęzienie' }],
+    category: 'Bramki logiczne i Narzędzia',
+    items: [
+      { type: 'logic', subtype: 'if_else', label: 'Jeśli / To (Warunek)', icon: GitBranch, description: 'Rozgałęzienie' },
+      { type: 'logic', subtype: 'delay', label: 'Opóźnienie czasowe', icon: Clock, description: 'Wstrzymuje proces' },
+      { type: 'logic', subtype: 'json_transform', label: 'Filtruj Dane', icon: FileJson, description: 'Wybiera tylko wybrane pola' },
+    ],
   },
   {
     category: 'Akcje',
     items: [
       { type: 'action', subtype: 'slack_msg', label: 'Wyślij na Slack', icon: MessageSquare, description: 'Powiadomienie' },
+      { type: 'action', subtype: 'send_email', label: 'Wyślij Email', icon: Mail, description: 'Wiadomość z systemu' },
+      { type: 'action', subtype: 'http_request', label: 'Zewnętrzny Webhook API', icon: Globe, description: 'Request HTTP (GET/POST)' },
       { type: 'action', subtype: 'db_insert', label: 'Zapisz do Bazy', icon: Database, description: 'INSERT/UPDATE' },
     ],
   },
@@ -161,7 +171,7 @@ export default function WorkflowEditor({ onBack }: WorkflowEditorProps) {
     // Walidacja główna
     const hasTrigger = nodes.some(n => n.type === 'trigger');
     if (!hasTrigger) {
-      alert('Błąd: Twój proces musi zawierać co najmniej jeden wyzwalacz aby mógł wystartować!');
+      alert('Błąd: Twój proces musi zawierać co najmniej jeden wyzwalacz!');
       return;
     }
 
@@ -213,16 +223,14 @@ export default function WorkflowEditor({ onBack }: WorkflowEditorProps) {
           <div className="space-y-4">
             <div className="p-4 bg-primary/5 rounded-lg border border-primary/20">
               <h4 className="text-sm font-semibold text-foreground mb-2">Twój adres Webhook</h4>
-              
               <div className="bg-white p-3 border border-border rounded-md text-xs font-mono text-muted-foreground break-all mb-3 shadow-sm">
                 [POST] /api/v1/workflows/<span className="text-primary font-bold">{"{ID_PROCESU}"}</span>/trigger
               </div>
-              
               <p className="text-xs text-muted-foreground leading-relaxed mb-2">
                 Zapisz swój proces, a następnie skopiuj jego ID z Dashboardu i wstaw w miejsce zaznaczone na niebiesko.
               </p>
               <p className="text-xs text-muted-foreground leading-relaxed">
-                Aby uruchomić proces, system zewnętrzny (np. sklep) musi wysłać żądanie HTTP na powyższy adres. Otrzymany format JSON zostanie zmapowany na zmienne w Twoich klockach.
+                Aby uruchomić proces, system zewnętrzny musi wysłać żądanie HTTP na powyższy adres.
               </p>
             </div>
           </div>
@@ -267,8 +275,7 @@ export default function WorkflowEditor({ onBack }: WorkflowEditorProps) {
                 onChange={(e) => updateNodeConfig('variable', e.target.value)}
               />
               <p className="text-[10px] text-muted-foreground">Nazwa parametru, który przyszedł z wyzwalacza.</p>
-            </div>
-            
+            </div>            
             <div className="space-y-2">
               <label className="text-sm font-medium text-foreground">Warunek logiczny</label>
               <select
@@ -282,7 +289,6 @@ export default function WorkflowEditor({ onBack }: WorkflowEditorProps) {
                 <option value="contains">Zawiera tekst</option>
               </select>
             </div>
-
             <div className="space-y-2">
               <label className="text-sm font-medium text-foreground">Wartość docelowa</label>
               <input
@@ -295,7 +301,7 @@ export default function WorkflowEditor({ onBack }: WorkflowEditorProps) {
             </div>
           </div>
         );
-
+        
       case 'db_insert':
         return (
           <div className="space-y-4">
@@ -311,10 +317,128 @@ export default function WorkflowEditor({ onBack }: WorkflowEditorProps) {
                 <option value="orders">Baza Zamówień</option>
               </select>
             </div>
-            <div className="p-3 bg-muted/50 rounded-md border border-border">
-              <p className="text-xs text-muted-foreground leading-relaxed">
-                Wszystkie dane zebrane w poprzednich krokach zostaną automatycznie dopasowane i zapisane w wybranej tabeli jako nowy rekord.
-              </p>
+          </div>
+        );
+
+      // Formularz wysyłki e-mail
+      case 'send_email':
+        return (
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-foreground">Odbiorca (Adres e-mail)</label>
+              <input
+                type="text"
+                placeholder="np. biuro@firma.pl"
+                className="w-full text-sm border-border rounded-md shadow-sm p-2.5 border focus:outline-none focus:ring-2 focus:ring-primary/50"
+                value={config.recipient || ''}
+                onChange={(e) => updateNodeConfig('recipient', e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-foreground">Temat wiadomości</label>
+              <input
+                type="text"
+                placeholder="np. Masz nowe zamówienie!"
+                className="w-full text-sm border-border rounded-md shadow-sm p-2.5 border focus:outline-none focus:ring-2 focus:ring-primary/50"
+                value={config.subject || ''}
+                onChange={(e) => updateNodeConfig('subject', e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-foreground">Treść maila</label>
+              <textarea
+                placeholder="Wpisz treść wiadomości, którą chcesz wysłać..."
+                rows={5}
+                className="w-full text-sm border-border rounded-md shadow-sm p-2.5 border focus:outline-none focus:ring-2 focus:ring-primary/50"
+                value={config.body || ''}
+                onChange={(e) => updateNodeConfig('body', e.target.value)}
+              />
+            </div>
+          </div>
+        );
+
+      // Formularz zewnętrznego zapytania HTTP
+      case 'http_request':
+        return (
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-foreground">Metoda i Adres URL zewnętrznego API</label>
+              <div className="flex gap-2">
+                <select
+                  className="w-1/3 text-sm border-border rounded-md shadow-sm border p-2.5 focus:outline-none focus:ring-2 focus:ring-primary/50 bg-white"
+                  value={config.method || 'GET'}
+                  onChange={(e) => updateNodeConfig('method', e.target.value)}
+                >
+                  <option value="GET">GET</option>
+                  <option value="POST">POST</option>
+                  <option value="PUT">PUT</option>
+                  <option value="DELETE">DELETE</option>
+                </select>
+                <input
+                  type="text"
+                  placeholder="https://api.system.pl/v1/..."
+                  className="w-2/3 text-sm border-border rounded-md shadow-sm p-2.5 border focus:outline-none focus:ring-2 focus:ring-primary/50"
+                  value={config.url || ''}
+                  onChange={(e) => updateNodeConfig('url', e.target.value)}
+                />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-foreground">Nagłówki (np. Token Autoryzacji w JSON)</label>
+              <textarea
+                placeholder='{"Authorization": "Bearer TOKEN"}'
+                rows={2}
+                className="w-full font-mono text-xs border-border rounded-md shadow-sm p-2.5 border focus:outline-none focus:ring-2 focus:ring-primary/50"
+                value={config.headers || ''}
+                onChange={(e) => updateNodeConfig('headers', e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-foreground">Dane do wysłania (Payload JSON)</label>
+              <textarea
+                placeholder='{"status": "zakończony"}'
+                rows={3}
+                className="w-full font-mono text-xs border-border rounded-md shadow-sm p-2.5 border focus:outline-none focus:ring-2 focus:ring-primary/50"
+                value={config.body || ''}
+                onChange={(e) => updateNodeConfig('body', e.target.value)}
+              />
+            </div>
+          </div>
+        );
+
+      // Formularz opóźnienia czasowego
+      case 'delay':
+        return (
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-foreground">Zatrzymaj proces na czas (w minutach)</label>
+              <input
+                type="number"
+                placeholder="np. 60 (1 godzina)"
+                min="0"
+                className="w-full text-sm border-border rounded-md shadow-sm p-2.5 border focus:outline-none focus:ring-2 focus:ring-primary/50"
+                value={config.minutes || ''}
+                onChange={(e) => updateNodeConfig('minutes', e.target.value)}
+              />
+              <p className="text-[10px] text-muted-foreground mt-1">Po upłynięciu czasu proces wznowi działanie i przejdzie do kolejnych węzłów.</p>
+            </div>
+          </div>
+        );
+
+      // Formularz transformacji i filtrowania JSON
+      case 'json_transform':
+        return (
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-foreground">Zostaw tylko wybrane pola z poprzedniego kroku</label>
+              <input
+                type="text"
+                placeholder="np. id_klienta, kwota, status"
+                className="w-full text-sm border-border rounded-md shadow-sm p-2.5 border focus:outline-none focus:ring-2 focus:ring-primary/50"
+                value={config.keys || ''}
+                onChange={(e) => updateNodeConfig('keys', e.target.value)}
+              />
+              <p className="text-[10px] text-muted-foreground mt-1">Wypisz po przecinku pola JSON, które mają zostać przekazane dalej. Reszta zostanie odrzucona (odchudzenie payloadu).</p>
             </div>
           </div>
         );

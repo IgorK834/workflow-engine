@@ -1,4 +1,7 @@
 import logging
+import asyncio
+import httpx
+import json
 from typing import Any
 
 # Konfiguracja loggera
@@ -63,11 +66,90 @@ async def execute_db_insert(config: dict[str, Any], input_data: dict[str, Any]) 
         "inserted_record": input_data
     }
 
+async def execute_http_request(config: dict[str, Any], input_data: dict[str, Any]) -> dict[str, Any]:
+    """Wysyła request do HTTP do zewnętrznego API"""
+    url = config.get("url")
+    method = config.get("method", "GET").upper()
+    headers_str = config.get("headers", {})
+    body_str = config.get("body", "{}")
+
+    if not url:
+        raise ValueError("URL jest wymagany dla tego węzła")
+    
+    try:
+        headers = json.loads(headers_str) if headers_str.strip() else {}
+        body = json.loads(body_str) if body_str.strip() else {}
+    except json.JSONDecodeError as e:
+        raise ValueError(f"Błąd parsowania JSON w konfiguracji HTTP: {e}")
+    
+    logger.info(f"[HTTP REQUEST] {method} -> {url}")
+
+    async with httpx.AsyncClient() as client:
+        if method in ["POST", "PUT", "PATCH"]:
+            response = await client.request(method, url, headers=headers, json=body)
+        else:
+            response = await client.response(method, url, headers=headers)
+
+        try:
+            response_data = response.json()
+        except Exception:
+            response_data = response.text
+
+        return {
+            "status_code": response.status_code,
+            "response": response_data,
+            "request_url": url
+        }
+    
+async def execute_send_email(config: dict[str, Any], input_data: dict[str, Any]) -> dict[str, Any]:
+    """Symulacja wysyłki email"""
+    recipient = config.get("recipient", "example@example.com")
+    subject = config.get("subject", "Temat")
+    body = config.get("body", "Treść")
+
+    logger.info(f"[EMAIL] Wysyłka na: {recipient} | Temat: {subject}")
+
+    return {"status": "email_sent", "recipient": recipient, "subject": subject}
+
+async def execute_delay(config: dict[str, Any], input_data: dict[str, Any]) -> dict[str, Any]:
+    """Wstrzymujemy wykonanie procesu na podany czas"""
+    try:
+        minutes = float(config.get("minutes", 0))
+    except ValueError:
+        minutes = 0
+        
+    logger.info(f"[DELAY] Usypiam proces na {minutes} minut...")
+    
+    await asyncio.sleep(minutes)
+
+    logger.info(f"[DELAY] Wznowiono proces.")
+
+    return input_data
+
+async def execute_json_transform(config: dict[str, Any], input_data: dict[str, Any]) -> dict[str, Any]:
+    """Filtracja danych - przepuszcza tylko wybrane klucze JSON"""
+    keys_str = config.get("keys", "")
+
+    if not keys_str.strip():
+        return input_data
+    
+    allowed_keys = [k.strip() for k in keys_str.split(",") if k.strip()]
+
+    logger.info(f"[JSON TRANSFORM] Filtrowanie kluczy: {allowed_keys}")
+
+    filtered_data = {k: input_data.get(k) for k in allowed_keys if k in input_data}
+
+    return filtered_data
+
 RUNNERS_REGISTRY = {
     "webhook": execute_webhook,
     "slack_msg": execute_slack_msg,
     "if_else": execute_if_else,
-    "db_insert": execute_db_insert
+    "db_insert": execute_db_insert,
+    "http_request": execute_http_request,
+    "send_email": execute_send_email,
+    "delay": execute_delay,
+    "json_tranform": execute_json_transform
 }
 
 async def run_node_task(subtype: str, config: dict[str, Any], input_data: dict[str, Any]) -> dict[str, Any]:

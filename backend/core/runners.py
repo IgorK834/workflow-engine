@@ -10,6 +10,7 @@ from sqlalchemy import select
 from typing import Any
 
 from ..models import SystemSetting
+from .security import decrypt_value
 
 # Konfiguracja loggera
 logging.basicConfig(level=logging.INFO)
@@ -141,7 +142,8 @@ async def execute_send_email(
     server = smtp_config.get("server")
     port = int(smtp_config.get("port", 587))
     login = smtp_config.get("login")
-    password = smtp_config.get("password")
+    raw_password = smtp_config.get("password", "")
+    password = decrypt_value(raw_password) if raw_password else None
 
     recipient = config.get("recipient", "example@example.com")
     subject = config.get("subject", "Temat")
@@ -238,5 +240,3 @@ async def run_node_task(
         return await runner_func(config, input_data, db=db)
     else:
         return await runner_func(config, input_data)
-
-    return await runner_func(config, input_data)

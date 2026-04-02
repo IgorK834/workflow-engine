@@ -2,24 +2,30 @@ import asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from dotenv import load_dotenv
 import os
 
 from azure.monitor.opentelemetry import configure_azure_monitor
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 
-from .database import enigne, Base
+from .database import engine, Base
 from .api import workflows, settings
 from .core.service_bus import start_message_listener
+
+load_dotenv()
+
+if not os.getenv("ENCRYPTION_MASTER_KEY"):
+    raise RuntimeError("CRITICAL ERROR: Brak ENCRYPTIO_MASTER_KEY!")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    async with enigne.begin() as conn:
+    async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     worker_task = asyncio.create_task(start_message_listener())
     yield
     worker_task.cancel()
-    await enigne.dispose()
+    await engine.dispose()
 
 
 app = FastAPI(

@@ -80,13 +80,13 @@ class WorkflowExecutionResponse(BaseModel):
 
 
 # Schemat zapisu nowych kluczy API
-class SystemSettignCreate(BaseModel):
+class SystemSettingCreate(BaseModel):
     key: str = Field(..., description="Klucz ustawienia, np. 'smtp_profile'")
     value: dict[str, Any] = Field(..., description="Wartość w formacjie JSON")
 
 
 # Schemat zapisu konfiguracji klucza API
-class SystemSettignResponse(SystemSettignCreate):
+class SystemSettingResponse(SystemSettingCreate):
     id: uuid.UUID
     created_at: datetime
     updated_at: datetime

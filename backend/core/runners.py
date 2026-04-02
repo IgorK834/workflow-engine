@@ -109,7 +109,7 @@ async def execute_http_request(
         if method in ["POST", "PUT", "PATCH"]:
             response = await client.request(method, url, headers=headers, json=body)
         else:
-            response = await client.response(method, url, headers=headers)
+            response = await client.request(method, url, headers=headers)
 
         try:
             response_data = response.json()
@@ -149,7 +149,7 @@ async def execute_send_email(
     subject = config.get("subject", "Temat")
     body = config.get("body", "Treść")
 
-    logger.inf(
+    logger.info(
         f"[EMAIL] Rozpoczynam wysyłkę na: {recipient} | Temat: {subject} przez serwer {server}:{port}"
     )
 
@@ -220,7 +220,7 @@ RUNNERS_REGISTRY = {
     "http_request": execute_http_request,
     "send_email": execute_send_email,
     "delay": execute_delay,
-    "json_tranform": execute_json_transform,
+    "json_transform": execute_json_transform,
 }
 
 

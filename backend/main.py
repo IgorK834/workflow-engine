@@ -1,9 +1,14 @@
 import asyncio
+import os
+import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
-import os
+from datetime import datetime, timezone
+from sqlalchemy import select
+from sqlalchemy.orm import selectinload
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from azure.monitor.opentelemetry import configure_azure_monitor
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
@@ -11,20 +16,67 @@ from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from .database import engine, Base
 from .api import workflows, settings
 from .core.service_bus import start_message_listener
+from .models import WorkflowExecution, ExecutionStatus, Workflow
+# POPRAWKA 1: Importujemy ExecutionEngine zamiast mylnie drugi raz AsyncSession
+from .core.engine import ExecutionEngine 
+
+# POPRAWKA 2: Inicjalizacja loggera
+logger = logging.getLogger(__name__)
 
 load_dotenv()
 
 if not os.getenv("ENCRYPTION_MASTER_KEY"):
     raise RuntimeError("CRITICAL ERROR: Brak ENCRYPTIO_MASTER_KEY!")
 
+async def scheduler_worker():
+    """Worker działający w tle by wybudzić opóźnione procesy."""
+    while True:
+        await asyncio.sleep(10)
+        try:
+            async with AsyncSession(engine) as session:
+                now = datetime.now(timezone.utc)
+
+                stmt = select(WorkflowExecution).options(selectinload(WorkflowExecution.workflow)).where(
+                    WorkflowExecution.status == ExecutionStatus.PAUSED,
+                    WorkflowExecution.resume_at <= now
+                )
+
+                result = await session.execute(stmt)
+                executions = result.scalars().all()
+
+                for exec_record in executions:
+                    logger.info(f"[SCHEDULER] Wybudzanie procesu: {exec_record.id}")
+
+                    exec_record.status = ExecutionStatus.RUNNING
+                    exec_record.resume_at = None
+                    session.add(exec_record)
+                    await session.commit()
+
+                    execution_engine = ExecutionEngine(session, exec_record.id)
+                    graph_json = exec_record.workflow.graph_json
+
+                    asyncio.create_task(execution_engine.run(graph_json))
+        except Exception as e:
+            logger.error(f"[Scheduler] Błąd podczas sprawdzania procesów do wybudzenia: {str(e)}")
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+    
     worker_task = asyncio.create_task(start_message_listener())
+    
+    # POPRAWKA 3: Uruchomienie schedulera
+    scheduler_task = asyncio.create_task(scheduler_worker())
+    
     yield
+    
     worker_task.cancel()
+    
+    # POPRAWKA 4: Zatrzymanie schedulera przy wyłączaniu serwera
+    scheduler_task.cancel()
+    
     await engine.dispose()
 
 

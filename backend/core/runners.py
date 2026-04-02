@@ -1,5 +1,4 @@
 import logging
-import asyncio
 import httpx
 import json
 import aiosmtplib
@@ -8,6 +7,7 @@ from email.message import EmailMessage
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import Any
+from datetime import datetime, timezone, timedelta
 
 from ..models import SystemSetting
 from .security import decrypt_value
@@ -181,17 +181,32 @@ async def execute_delay(
 ) -> dict[str, Any]:
     """Wstrzymujemy wykonanie procesu na podany czas"""
     try:
-        minutes = float(config.get("minutes", 0))
+        value = float(config.get("value", 0))
     except ValueError:
-        minutes = 0
+        value = 0
 
-    logger.info(f"[DELAY] Usypiam proces na {minutes} minut...")
+    unit = config.get("unit", "minutes")
 
-    await asyncio.sleep(minutes)
+    if unit == "seconds":
+        delta = timedelta(seconds=value)
+    elif unit == "hours":
+        delta = timedelta(hours=value)
+    elif unit == "days":
+        delta = timedelta(days=value)
+    else:
+        delta = timedelta(minutes=value)
 
-    logger.info("[DELAY] Wznowiono proces.")
+    target_time = datetime.now(timezone.utc) + delta
 
-    return input_data
+    logger.info(
+        f"[DELAY] Proces uśpiony. Zaplanowano wznowienie na : {target_time.isoformat()}"
+    )
+
+    return {
+        "__pause__": True,
+        "resume_at": target_time.isoformat(),
+        "original_input": input_data,
+    }
 
 
 async def execute_json_transform(

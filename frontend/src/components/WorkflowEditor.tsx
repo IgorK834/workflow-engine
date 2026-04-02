@@ -56,7 +56,7 @@ const nodeBlocks = [
     category: 'Bramki logiczne i Narzędzia',
     items: [
       { type: 'logic', subtype: 'if_else', label: 'Jeśli / To (Warunek)', icon: GitBranch, description: 'Rozgałęzienie' },
-      { type: 'logic', subtype: 'delay', label: 'Opóźnienie czasowe', icon: Clock, description: 'Wstrzymuje proces' },
+      { type: 'logic', subtype: 'delay', label: 'Opóźnienie czasowe', icon: Clock, description: 'Pause & Resume (Baza)' },
       { type: 'logic', subtype: 'json_transform', label: 'Filtruj Dane', icon: FileJson, description: 'Wybiera tylko wybrane pola' },
     ],
   },
@@ -417,16 +417,28 @@ export default function WorkflowEditor({ onBack }: WorkflowEditorProps) {
         return (
           <div className="space-y-4">
             <div className="space-y-2">
-              <label className="text-sm font-medium text-foreground">Zatrzymaj proces na czas (w minutach)</label>
-              <input
-                type="number"
-                placeholder="np. 60 (1 godzina)"
-                min="0"
-                className="w-full text-sm border-border rounded-md shadow-sm p-2.5 border focus:outline-none focus:ring-2 focus:ring-primary/50"
-                value={config.minutes || ''}
-                onChange={(e) => updateNodeConfig('minutes', e.target.value)}
-              />
-              <p className="text-[10px] text-muted-foreground mt-1">Po upłynięciu czasu proces wznowi działanie i przejdzie do kolejnych węzłów.</p>
+              <label className="text-sm font-medium text-foreground">Zatrzymaj proces na czas</label>
+              <div className="flex gap-2">
+                <input
+                  type="number"
+                  placeholder="np. 15"
+                  min="0"
+                  className="w-1/2 text-sm border-border rounded-md shadow-sm p-2.5 border focus:outline-none focus:ring-2 focus:ring-primary/50"
+                  value={config.value || ''}
+                  onChange={(e) => updateNodeConfig('value', e.target.value)}
+                />
+                <select
+                  className="w-1/2 text-sm border-border rounded-md shadow-sm border p-2.5 focus:outline-none focus:ring-2 focus:ring-primary/50 bg-white"
+                  value={config.unit || 'minutes'}
+                  onChange={(e) => updateNodeConfig('unit', e.target.value)}
+                >
+                  <option value="seconds">Sekundy</option>
+                  <option value="minutes">Minuty</option>
+                  <option value="hours">Godziny</option>
+                  <option value="days">Dni</option>
+                </select>
+              </div>
+              <p className="text-[10px] text-muted-foreground mt-1">Po upłynięciu wskazanego czasu proces automatycznie wznowi działanie w tle.</p>
             </div>
           </div>
         );

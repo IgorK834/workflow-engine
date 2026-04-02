@@ -17,6 +17,7 @@ class ExecutionStatus(str, enum.Enum):
     COMPLETED = "COMPLETED"
     FAILED = "FAILED"
     CANCELED = "CANCELED"
+    PAUSED = "PAUSED"
 
 
 class Workflow(Base):
@@ -58,6 +59,9 @@ class WorkflowExecution(Base):
         DateTime(timezone=True), default=utc_now
     )
     finished_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    resume_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
 

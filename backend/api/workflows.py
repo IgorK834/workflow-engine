@@ -8,6 +8,7 @@ from ..database import get_db
 from ..database import WorkflowCreate, WorkflowResponse, WorkflowExecutiveResponse
 from ..models import Workflow, WorkflowExecution
 from ..core.state_manager import StateManager
+from ..core.scheduler import sync_workflows_to_scheduler
 
 router = APIRouter(prefix="/workflows", tags=["workflows"])
 
@@ -31,6 +32,7 @@ async def create_workflow(
     db.add(new_workflow)
     await db.commit()
     await db.refresh(new_workflow)
+    await sync_workflows_to_scheduler()
     return new_workflow
 
 @router.get("/executions", response_model=list[WorkflowExecutiveResponse])

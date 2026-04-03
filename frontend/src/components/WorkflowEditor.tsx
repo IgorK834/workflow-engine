@@ -50,7 +50,10 @@ interface WorkflowEditorProps {
 const nodeBlocks = [
   {
     category: 'Wyzwalacze',
-    items: [{ type: 'trigger', subtype: 'webhook', label: 'Odbierz Webhook', icon: Webhook, description: 'HTTP endpoint' }],
+    items: [
+      { type: 'trigger', subtype: 'webhook', label: 'Odbierz Webhook', icon: Webhook, description: 'HTTP endpoint' },
+      { type: 'trigger', subtype: 'receive_email', label: 'Odbierz Email', icon: Mail, description: 'Oczekuje na maile'}
+    ],
   },
   {
     category: 'Bramki logiczne i Narzędzia',
@@ -457,6 +460,41 @@ export default function WorkflowEditor({ onBack }: WorkflowEditorProps) {
                 onChange={(e) => updateNodeConfig('keys', e.target.value)}
               />
               <p className="text-[10px] text-muted-foreground mt-1">Wypisz po przecinku pola JSON, które mają zostać przekazane dalej. Reszta zostanie odrzucona (odchudzenie payloadu).</p>
+            </div>
+          </div>
+        );
+
+      // Formularz oczekiwania na wiadomość email
+      case 'receive_email':
+        return (
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-foreground">Filtruj Nadawcę (Opcjonalnie)</label>
+              <input
+                type="text"
+                placeholder="np. faktury@firma.pl"
+                className="w-full text-sm border-border rounded-md shadow-sm p-2.5 border focus:outline-none focus:ring-2 focus:ring-primary/50"
+                value={config.from_filter || ''}
+                onChange={(e) => updateNodeConfig('from_filter', e.target.value)}
+              />
+              <p className="text-[10px] text-muted-foreground mt-1">Uruchom tylko jeśli nadawca zawiera ten tekst.</p>
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-foreground">Filtruj Temat (Opcjonalnie)</label>
+              <input
+                type="text"
+                placeholder="np. Awaria systemu"
+                className="w-full text-sm border-border rounded-md shadow-sm p-2.5 border focus:outline-none focus:ring-2 focus:ring-primary/50"
+                value={config.subject_filter || ''}
+                onChange={(e) => updateNodeConfig('subject_filter', e.target.value)}
+              />
+              <p className="text-[10px] text-muted-foreground mt-1">Uruchom tylko jeśli temat zawiera ten tekst.</p>
+            </div>
+
+            <div className="p-3 mt-4 bg-primary/5 rounded-lg border border-primary/20">
+              <p className="text-xs text-muted-foreground leading-relaxed text-center">
+                Ten proces uruchomi się automatycznie dla nowych wiadomości przy użyciu globalnej konfiguracji <span className="font-semibold text-primary">IMAP</span> z panelu Settings.
+              </p>
             </div>
           </div>
         );

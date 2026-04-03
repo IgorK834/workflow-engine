@@ -30,10 +30,9 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - ./backend:/app
-    depends_on:
-      - db
-    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+      - .:/workspace
+    working_dir: /workspace
+    command: uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
 
   #3. Frontend React
 
@@ -43,7 +42,7 @@ services:
       dockerfile: Dockerfile
     container_name: workflow_frontend
     environment:
-      - VITE_API_URL=https://localhost:8000
+      - VITE_API_BASE_URL=http://localhost:8000/api/v1
     ports:
       - "5173:5173"
     volumes:

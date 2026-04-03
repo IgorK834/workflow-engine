@@ -382,36 +382,47 @@ export default function WorkflowEditor({ onBack }: WorkflowEditorProps) {
                   <option value="GET">GET</option>
                   <option value="POST">POST</option>
                   <option value="PUT">PUT</option>
+                  <option value="PATCH">PATCH</option>
                   <option value="DELETE">DELETE</option>
                 </select>
                 <input
                   type="text"
-                  placeholder="https://api.system.pl/v1/..."
-                  className="w-2/3 text-sm border-border rounded-md shadow-sm p-2.5 border focus:outline-none focus:ring-2 focus:ring-primary/50"
+                  placeholder="https://api.system.pl/v1/users/{{ id }}"
+                  className="w-2/3 text-sm font-mono border-border rounded-md shadow-sm p-2.5 border focus:outline-none focus:ring-2 focus:ring-primary/50"
                   value={config.url || ''}
                   onChange={(e) => updateNodeConfig('url', e.target.value)}
                 />
               </div>
             </div>
+            
             <div className="space-y-2">
-              <label className="text-sm font-medium text-foreground">Nagłówki (np. Token Autoryzacji w JSON)</label>
+              <label className="text-sm font-medium text-foreground">Nagłówki (JSON) - np. autoryzacja</label>
               <textarea
-                placeholder='{"Authorization": "Bearer TOKEN"}'
+                placeholder='{"Authorization": "Bearer {{ token }}"}'
                 rows={2}
                 className="w-full font-mono text-xs border-border rounded-md shadow-sm p-2.5 border focus:outline-none focus:ring-2 focus:ring-primary/50"
                 value={config.headers || ''}
                 onChange={(e) => updateNodeConfig('headers', e.target.value)}
               />
             </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-foreground">Dane do wysłania (Payload JSON)</label>
-              <textarea
-                placeholder='{"status": "zakończony"}'
-                rows={3}
-                className="w-full font-mono text-xs border-border rounded-md shadow-sm p-2.5 border focus:outline-none focus:ring-2 focus:ring-primary/50"
-                value={config.body || ''}
-                onChange={(e) => updateNodeConfig('body', e.target.value)}
-              />
+
+            {['POST', 'PUT', 'PATCH'].includes(config.method || 'GET') && (
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-foreground">Ciało zapytania (JSON)</label>
+                <textarea
+                  placeholder='{"email": "{{ user_email }}"}'
+                  rows={3}
+                  className="w-full font-mono text-xs border-border rounded-md shadow-sm p-2.5 border focus:outline-none focus:ring-2 focus:ring-primary/50"
+                  value={config.body || ''}
+                  onChange={(e) => updateNodeConfig('body', e.target.value)}
+                />
+              </div>
+            )}
+
+            <div className="p-3 mt-4 bg-blue-50 text-blue-800 rounded-lg border border-blue-100 shadow-sm">
+              <p className="text-xs leading-relaxed">
+                💡 <span className="font-semibold">Wskazówka:</span> Użyj syntaxu <code>{"{{"} nazwa_zmiennej {"}}"}</code>, aby wstrzyknąć dynamiczne dane z poprzednich kroków (np. w adresie URL lub w JSONie).
+              </p>
             </div>
           </div>
         );

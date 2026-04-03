@@ -9,9 +9,7 @@ class TestInjectVariables:
         assert inject_variables("Hello {{name}}", {"name": "World"}) == "Hello World"
 
     def test_replaces_multiple_placeholders(self) -> None:
-        assert (
-            inject_variables("{{a}} and {{b}}", {"a": "1", "b": "2"}) == "1 and 2"
-        )
+        assert inject_variables("{{a}} and {{b}}", {"a": "1", "b": "2"}) == "1 and 2"
 
     def test_strips_whitespace_inside_braces(self) -> None:
         assert inject_variables("{{  key  }}", {"key": "x"}) == "x"
@@ -21,7 +19,7 @@ class TestInjectVariables:
 
     def test_non_string_passthrough(self) -> None:
         assert inject_variables("", {"a": "b"}) == ""
-        assert inject_variables(None, {}) is None  # type: ignore[arg-type]
+        assert inject_variables(None, {}) is None
 
     def test_numeric_values_coerced_to_str(self) -> None:
         assert inject_variables("n={{n}}", {"n": 42}) == "n=42"

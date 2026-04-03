@@ -8,7 +8,7 @@ DATABASE_URL = os.getenv(
     "postgresql+asyncpg://workflow_user:workflow_password@localhost:5432/workflow_engine",
 )
 
-engine = create_async_engine(DATABASE_URL, echo=True, future=True)
+engine = create_async_engine(DATABASE_URL, echo=False, future=True)
 
 AsyncSessionLocal = async_sessionmaker(
     engine, class_=AsyncSession, expire_on_commit=False

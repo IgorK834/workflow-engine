@@ -80,7 +80,7 @@ async def impa_listener_worker():
                 logger.info(f"[IMAP WORKER] Znaleziono {len(msg_nums)} nowych wiadomości.")
 
                 # Pobieranie aktywnych procesów z bazy
-                wf_stmt = select(Workflow).where(Workflow.is_acitve == True)
+                wf_stmt = select(Workflow).where(Workflow.is_active == True)
                 wf_result = await session.execute(wf_stmt)
                 active_worfklows = wf_result.scalars().all()
 

@@ -41,7 +41,7 @@ async def list_executions(db: AsyncSession = Depends(get_db)):
     )
     return result.scalars().all()
 
-@router.post("/{workflow_id/execute}", response_model=WorkflowExecutiveResponse)
+@router.post("/{workflow_id}/execute", response_model=WorkflowExecutiveResponse)
 async def execute_workflow(workflow_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
     """Inicjalizacja nowego wykonania procesu i odpalenie silnika"""
     result = await db.execute(select(Workflow).where(Workflow.id == workflow_id))

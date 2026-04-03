@@ -31,7 +31,7 @@ async def send_task_to_queue(task_data: dict[str, Any]) -> None:
 
 
 async def process_message(msg: ServiceBusMessage) -> bool:
-    """Symulacja przetwarzania ciękiego zadania"""
+    """Symulacja przetwarzania cięzkiego zadania"""
     try:
         task_data = json.loads(str(msg))
 
@@ -66,7 +66,7 @@ async def start_message_listener() -> None:
             "[Service Bus Worker] Brak połączenia z Azure. Worker nasłuchujący jest wyłączony."
         )
         return
-    print(f"[Service Bus Worker] Uruchomiono naskluchiwanie na kolejce: {QUEUE_NAME}")
+    print(f"[Service Bus Worker] Uruchomiono nasłuchiwanie na kolejce: {QUEUE_NAME}")
 
     try:
         async with ServiceBusClient.from_connection_string(

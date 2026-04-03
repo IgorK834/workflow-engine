@@ -18,7 +18,7 @@ from .api import workflows, settings
 from .core.service_bus import start_message_listener
 from .models import WorkflowExecution, ExecutionStatus, Workflow
 from .core.engine import ExecutionEngine 
-from .core.imap_worker import impa_listener_worker
+from .core.imap_worker import imap_listener_worker
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +66,7 @@ async def lifespan(app: FastAPI):
     
     worker_task = asyncio.create_task(start_message_listener())
     scheduler_task = asyncio.create_task(scheduler_worker())
-    imap_task = asyncio.create_task(impa_listener_worker())
+    imap_task = asyncio.create_task(imap_listener_worker())
     
     yield
     

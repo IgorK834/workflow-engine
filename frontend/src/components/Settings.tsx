@@ -169,7 +169,7 @@ export default function Settings() {
           </div>
         </form>
 
-        {/* Formularz SMTP (odbiór) */}
+        {/* Formularz IMAP (odbiór) */}
         <form onSubmit={handleSaveIMAP} className="bg-white rounded-xl border border-border shadow-sm overflow-hidden">
           <div className="p-6 border-b border-border bg-muted/10 flex items-center gap-3">
             <Inbox className="w-5 h-5 text-primary" />

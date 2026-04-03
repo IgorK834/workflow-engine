@@ -52,7 +52,8 @@ const nodeBlocks = [
     category: 'Wyzwalacze',
     items: [
       { type: 'trigger', subtype: 'webhook', label: 'Odbierz Webhook', icon: Webhook, description: 'HTTP endpoint' },
-      { type: 'trigger', subtype: 'receive_email', label: 'Odbierz Email', icon: Mail, description: 'Oczekuje na maile'}
+      { type: 'trigger', subtype: 'receive_email', label: 'Odbierz Email', icon: Mail, description: 'Oczekuje na maile'},
+      { type: 'trigger', subtype: 'schedule', label: 'Harmonogram (Cron)', icon: Clock, description: 'Uruchamia cyklicznie' },
     ],
   },
   {
@@ -494,6 +495,71 @@ export default function WorkflowEditor({ onBack }: WorkflowEditorProps) {
             <div className="p-3 mt-4 bg-primary/5 rounded-lg border border-primary/20">
               <p className="text-xs text-muted-foreground leading-relaxed text-center">
                 Ten proces uruchomi się automatycznie dla nowych wiadomości przy użyciu globalnej konfiguracji <span className="font-semibold text-primary">IMAP</span> z panelu Settings.
+              </p>
+            </div>
+          </div>
+        );
+      
+      // Formularz harmonogramu wykonywania akcji
+      case 'schedule':
+        return (
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-foreground">Typ harmonogramu</label>
+              <select
+                className="w-full text-sm border-border rounded-md shadow-sm border p-2.5 focus:outline-none focus:ring-2 focus:ring-primary/50 bg-white"
+                value={config.schedule_type || 'interval'}
+                onChange={(e) => updateNodeConfig('schedule_type', e.target.value)}
+              >
+                <option value="interval">Interwał (np. co X minut)</option>
+                <option value="cron">Wyrażenie Cron</option>
+              </select>
+            </div>
+
+            {(!config.schedule_type || config.schedule_type === 'interval') && (
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-foreground">Co ile uruchamiać?</label>
+                <div className="flex gap-2">
+                  <input
+                    type="number"
+                    min="1"
+                    placeholder="np. 15"
+                    className="w-1/2 text-sm border-border rounded-md shadow-sm p-2.5 border focus:outline-none focus:ring-2 focus:ring-primary/50"
+                    value={config.interval_value || '15'}
+                    onChange={(e) => updateNodeConfig('interval_value', e.target.value)}
+                  />
+                  <select
+                    className="w-1/2 text-sm border-border rounded-md shadow-sm border p-2.5 focus:outline-none focus:ring-2 focus:ring-primary/50 bg-white"
+                    value={config.interval_unit || 'minutes'}
+                    onChange={(e) => updateNodeConfig('interval_unit', e.target.value)}
+                  >
+                    <option value="minutes">Minut</option>
+                    <option value="hours">Godzin</option>
+                    <option value="days">Dni</option>
+                  </select>
+                </div>
+              </div>
+            )}
+
+            {config.schedule_type === 'cron' && (
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-foreground">Wyrażenie Cron</label>
+                <input
+                  type="text"
+                  placeholder="np. 0 8 * * *"
+                  className="w-full text-sm font-mono border-border rounded-md shadow-sm p-2.5 border focus:outline-none focus:ring-2 focus:ring-primary/50"
+                  value={config.cron_expression || '0 8 * * *'}
+                  onChange={(e) => updateNodeConfig('cron_expression', e.target.value)}
+                />
+                <p className="text-[10px] text-muted-foreground mt-1">
+                  Przykład: <code>0 8 * * *</code> oznacza codziennie o 8:00 UTC.
+                </p>
+              </div>
+            )}
+
+            <div className="p-3 mt-4 bg-primary/5 rounded-lg border border-primary/20">
+              <p className="text-xs text-muted-foreground leading-relaxed text-center">
+                Harmonogram jest weryfikowany na serwerze i automatycznie synchronizowany po zapisaniu procesu.
               </p>
             </div>
           </div>

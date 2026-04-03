@@ -69,7 +69,7 @@ class WorkflowResponse(WorkflowCreate):
 
 
 # Schemat zwracany przez API dla historii uruchomień
-class WorkflowExecutionResponse(BaseModel):
+class WorkflowExecutiveResponse(BaseModel):
     id: uuid.UUID
     workflow_id: uuid.UUID
     status: str

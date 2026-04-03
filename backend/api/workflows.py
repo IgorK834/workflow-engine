@@ -5,7 +5,7 @@ import uuid
 
 from ..core.engine import ExecutionEngine
 from ..database import get_db
-from ..database import WorkflowCreate, WorkflowResponse, WorkflowExecutiveResponse
+from ..schemas import WorkflowCreate, WorkflowResponse, WorkflowExecutiveResponse
 from ..models import Workflow, WorkflowExecution
 from ..core.state_manager import StateManager
 from ..core.scheduler import sync_workflows_to_scheduler
@@ -13,7 +13,7 @@ from ..core.scheduler import sync_workflows_to_scheduler
 router = APIRouter(prefix="/workflows", tags=["workflows"])
 
 
-@router.get("/", response_model=list(WorkflowResponse))
+@router.get("/", response_model=list[WorkflowResponse])
 async def list_workflows(db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Workflow))
     return result.scalars().all()
@@ -35,6 +35,7 @@ async def create_workflow(
     await sync_workflows_to_scheduler()
     return new_workflow
 
+
 @router.get("/executions", response_model=list[WorkflowExecutiveResponse])
 async def list_executions(db: AsyncSession = Depends(get_db)):
     """Pobiera historie wszystkich uruchomień procesów"""
@@ -43,6 +44,7 @@ async def list_executions(db: AsyncSession = Depends(get_db)):
     )
     return result.scalars().all()
 
+
 @router.post("/{workflow_id}/execute", response_model=WorkflowExecutiveResponse)
 async def execute_workflow(workflow_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
     """Inicjalizacja nowego wykonania procesu i odpalenie silnika"""
@@ -50,8 +52,10 @@ async def execute_workflow(workflow_id: uuid.UUID, db: AsyncSession = Depends(ge
     workflow = result.scalar_one_or_none()
 
     if not workflow:
-        raise HTTPException(status_code=404, detail="Nie znaleziono procesu o podanym ID")
-    
+        raise HTTPException(
+            status_code=404, detail="Nie znaleziono procesu o podanym ID"
+        )
+
     state_manager = StateManager(db)
     execution = await state_manager.initialize_execution(workflow_id)
 
@@ -65,15 +69,20 @@ async def execute_workflow(workflow_id: uuid.UUID, db: AsyncSession = Depends(ge
 
     return execution
 
+
 @router.post("/{workflow_id}/trigger")
-async def trigger_webhook(workflow_id: uuid.UUID, request: Request, db: AsyncSession = Depends(get_db)):
+async def trigger_webhook(
+    workflow_id: uuid.UUID, request: Request, db: AsyncSession = Depends(get_db)
+):
     """Publiczny endpoint nasłuchujący na dane"""
     result = await db.execute(select(Workflow).where(Workflow.id == workflow_id))
     workflow = result.scalar_one_or_none()
 
     if not workflow:
-        raise HTTPException(status_code=404, detail="Nie znaleziono procesu o podanym ID")
-    
+        raise HTTPException(
+            status_code=404, detail="Nie znaleziono procesu o podanym ID"
+        )
+
     try:
         payload = await request.json()
     except Exception:
@@ -87,4 +96,8 @@ async def trigger_webhook(workflow_id: uuid.UUID, request: Request, db: AsyncSes
     await engine.run(workflow.graph_json, initial_payload=payload)
 
     await db.refresh(execution)
-    return {"status": "success", "execution_id": str(execution.id), "payload_received": payload}
+    return {
+        "status": "success",
+        "execution_id": str(execution.id),
+        "payload_received": payload,
+    }

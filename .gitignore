@@ -1,6 +1,7 @@
 # Środowiska i zależności
 node_modules/
 venv/
+.venv/
 env/
 .env
 

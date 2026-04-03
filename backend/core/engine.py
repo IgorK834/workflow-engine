@@ -46,7 +46,7 @@ class ExecutionEngine:
         completed_node_ids = set()
 
         result = await self.db.execute(
-            select(ExecutionStatus).where(
+            select(ExecutionStep).where(
                 ExecutionStep.execution_id == self.execution_id
             )
         )

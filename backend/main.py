@@ -17,10 +17,9 @@ from .database import engine, Base
 from .api import workflows, settings
 from .core.service_bus import start_message_listener
 from .models import WorkflowExecution, ExecutionStatus, Workflow
-# POPRAWKA 1: Importujemy ExecutionEngine zamiast mylnie drugi raz AsyncSession
 from .core.engine import ExecutionEngine 
+from .core.imap_worker import impa_listener_worker
 
-# POPRAWKA 2: Inicjalizacja loggera
 logger = logging.getLogger(__name__)
 
 load_dotenv()
@@ -66,16 +65,14 @@ async def lifespan(app: FastAPI):
         await conn.run_sync(Base.metadata.create_all)
     
     worker_task = asyncio.create_task(start_message_listener())
-    
-    # POPRAWKA 3: Uruchomienie schedulera
     scheduler_task = asyncio.create_task(scheduler_worker())
+    imap_task = asyncio.create_task(impa_listener_worker())
     
     yield
     
     worker_task.cancel()
-    
-    # POPRAWKA 4: Zatrzymanie schedulera przy wyłączaniu serwera
     scheduler_task.cancel()
+    imap_task.cancel()
     
     await engine.dispose()
 

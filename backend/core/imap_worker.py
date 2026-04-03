@@ -31,8 +31,8 @@ def extract_plain_text_body(msg) -> str:
     
     return body
 
-async def impa_listener_worker():
-    """Worker srawdzający skrzynkę i wyzwalający procesy."""
+async def imap_listener_worker():
+    """Worker sprawdzający skrzynkę i wyzwalający procesy."""
     logger.info("[IMAP WORKER] Zainicjowano workera odbierającego pocztę.")
 
     while True:

@@ -6,9 +6,16 @@ from azure.servicebus.aio import ServiceBusClient
 from azure.servicebus import ServiceBusMessage
 from .app_config import is_feature_enabled, FeatureFlags
 
-# Pobieramy konfigurację ze zmiennych środowiskowych
-CONNECTION_STR = os.getenv("SERVICEBUS_CONNECTION_STR")
-QUEUE_NAME = os.getenv("SERVICEBUS_QUEUE_NAME")
+# Zmienne zgodne z docker-compose / Azure: AZURE_SERVICEBUS_*.
+# SERVICEBUS_* pozostaje jako kompatybilność wsteczna.
+CONNECTION_STR = os.getenv("AZURE_SERVICEBUS_CONNECTION_STRING") or os.getenv(
+    "SERVICEBUS_CONNECTION_STR"
+)
+QUEUE_NAME = (
+    os.getenv("AZURE_SERVICEBUS_QUEUE_NAME")
+    or os.getenv("SERVICEBUS_QUEUE_NAME")
+    or "tasks"
+)
 
 
 async def send_task_to_queue(task_data: dict[str, Any]) -> None:

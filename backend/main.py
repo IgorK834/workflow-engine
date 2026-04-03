@@ -2,9 +2,13 @@ import asyncio
 import os
 import logging
 from contextlib import asynccontextmanager
+
+from dotenv import load_dotenv
+
+load_dotenv()
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from dotenv import load_dotenv
 from datetime import datetime, timezone
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
@@ -22,11 +26,13 @@ from .core.imap_worker import imap_listener_worker
 from .core.scheduler import scheduler, sync_workflows_to_scheduler
 
 logger = logging.getLogger(__name__)
+logging.getLogger("sqlalchemy.engine").setLevel(logging.WARNING)
 
-load_dotenv()
+logging.getLogger("azure").setLevel(logging.WARNING)
+logging.getLogger("azure.core.pipeline.policies.http_logging_policy").setLevel(logging.WARNING)
 
 if not os.getenv("ENCRYPTION_MASTER_KEY"):
-    raise RuntimeError("CRITICAL ERROR: Brak ENCRYPTIO_MASTER_KEY!")
+    raise RuntimeError("CRITICAL ERROR: Brak ENCRYPTION_MASTER_KEY!")
 
 async def scheduler_worker():
     """Worker działający w tle by wybudzić opóźnione procesy."""

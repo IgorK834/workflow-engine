@@ -2,6 +2,7 @@ import logging
 import httpx
 import json
 import aiosmtplib
+import re
 
 from email.message import EmailMessage
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,17 +17,25 @@ from .security import decrypt_value
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Funkcja pomocnicza do http_request
+def inject_variables(text: str, data: dict) -> str:
+    """Wyszukuje tagi {{klucz}} i podmienia je."""
+    if not isinstance(text, str) or not text:
+        return text
+    
+    def replacer(match):
+        key = match.group(1).strip()
+        return str(data.get(key, ""))
+    
+    return re.sub(r"\{\{\s*(.*?)\s*\}\}", replacer, text)
 
-async def execute_webhook(
-    config: dict[str, Any], input_data: dict[str, Any]
-) -> dict[str, Any]:
+
+async def execute_webhook(config: dict[str, Any], input_data: dict[str, Any]) -> dict[str, Any]:
     logger.info(f"Odebrano dane z Webhooka: {input_data}")
     return input_data
 
 
-async def execute_slack_msg(
-    config: dict[str, Any], input_data: dict[str, Any]
-) -> dict[str, Any]:
+async def execute_slack_msg(config: dict[str, Any], input_data: dict[str, Any]) -> dict[str, Any]:
     """Symulacja wysłania wiadomości na slacka"""
     channel = config.get("channel", "#general")
     message = config.get("message", "Pusta wiadomość")
@@ -41,9 +50,7 @@ async def execute_slack_msg(
     }
 
 
-async def execute_if_else(
-    config: dict[str, Any], input_data: dict[str, Any]
-) -> dict[str, Any]:
+async def execute_if_else(config: dict[str, Any], input_data: dict[str, Any]) -> dict[str, Any]:
     variable = config.get("variable")
     operator = config.get("operator")
     target_value = config.get("value")
@@ -74,9 +81,7 @@ async def execute_if_else(
     }
 
 
-async def execute_db_insert(
-    config: dict[str, Any], input_data: dict[str, Any]
-) -> dict[str, Any]:
+async def execute_db_insert(config: dict[str, Any], input_data: dict[str, Any]) -> dict[str, Any]:
     """Symulacja zapisu do bazy danych"""
     table = config.get("table", "unknown_table")
 
@@ -85,47 +90,53 @@ async def execute_db_insert(
     return {"status": "inserted", "table": table, "inserted_record": input_data}
 
 
-async def execute_http_request(
-    config: dict[str, Any], input_data: dict[str, Any]
-) -> dict[str, Any]:
-    """Wysyła request do HTTP do zewnętrznego API"""
-    url = config.get("url")
+async def execute_http_request(config: dict[str, Any], input_data: dict[str, Any]) -> dict[str, Any]:
+    """Wysyła request HTTP do zewnętrznego API z obsługą wstrzykiwania zmiennych"""
+    raw_url = config.get("url", "")
     method = config.get("method", "GET").upper()
-    headers_str = config.get("headers", {})
-    body_str = config.get("body", "{}")
+    raw_headers_str = config.get("headers", "{}")
+    raw_body_str = config.get("body", "{}")
 
-    if not url:
+    if not raw_url:
         raise ValueError("URL jest wymagany dla tego węzła")
+
+    # Wstrzykiwanie zmiennych
+    url = inject_variables(raw_url, input_data)
+    headers_str = inject_variables(raw_headers_str, input_data)
+    body_str = inject_variables(raw_body_str, input_data)
 
     try:
         headers = json.loads(headers_str) if headers_str.strip() else {}
         body = json.loads(body_str) if body_str.strip() else {}
     except json.JSONDecodeError as e:
-        raise ValueError(f"Błąd parsowania JSON w konfiguracji HTTP: {e}")
+        logger.error(f"[HTTP REQUEST] Błąd parsowania JSON po wstrzyknięciu zmiennych. Payload: {body_str}")
+        raise ValueError(f"Błąd parsowania JSON (nagłówki lub ciało) po interpolacji: {e}")
 
     logger.info(f"[HTTP REQUEST] {method} -> {url}")
 
-    async with httpx.AsyncClient() as client:
-        if method in ["POST", "PUT", "PATCH"]:
-            response = await client.request(method, url, headers=headers, json=body)
-        else:
-            response = await client.request(method, url, headers=headers)
+    try:
+        async with httpx.AsyncClient() as client:
+            if method in ["POST", "PUT", "PATCH"]:
+                response = await client.request(method, url, headers=headers, json=body)
+            else:
+                response = await client.request(method, url, headers=headers)
 
-        try:
-            response_data = response.json()
-        except Exception:
-            response_data = response.text
+            try:
+                response_data = response.json()
+            except Exception:
+                response_data = response.text
 
-        return {
-            "status_code": response.status_code,
-            "response": response_data,
-            "request_url": url,
-        }
+            return {
+                "status_code": response.status_code,
+                "response": response_data,
+                "request_url": url,
+            }
+    except httpx.RequestError as exc:
+        logger.error(f"[HTTP REQUEST] Błąd połączenia z {url}: {exc}")
+        raise ValueError(f"Błąd połączenia HTTP z zewnętrznym API: {exc}")
 
 
-async def execute_send_email(
-    config: dict[str, Any], input_data: dict[str, Any], db: AsyncSession = None
-) -> dict[str, Any]:
+async def execute_send_email(config: dict[str, Any], input_data: dict[str, Any], db: AsyncSession = None) -> dict[str, Any]:
     """Wysyłka email"""
     if not db:
         raise ValueError("Brak połączenia z bazą danych")
@@ -176,9 +187,7 @@ async def execute_send_email(
         raise ValueError(f"Wsytąpił błąd podczas wysyłania e-maila: {str(e)}")
 
 
-async def execute_delay(
-    config: dict[str, Any], input_data: dict[str, Any]
-) -> dict[str, Any]:
+async def execute_delay(config: dict[str, Any], input_data: dict[str, Any]) -> dict[str, Any]:
     """Wstrzymujemy wykonanie procesu na podany czas"""
     try:
         value = float(config.get("value", 0))
@@ -209,9 +218,7 @@ async def execute_delay(
     }
 
 
-async def execute_json_transform(
-    config: dict[str, Any], input_data: dict[str, Any]
-) -> dict[str, Any]:
+async def execute_json_transform(config: dict[str, Any], input_data: dict[str, Any]) -> dict[str, Any]:
     """Filtracja danych - przepuszcza tylko wybrane klucze JSON"""
     keys_str = config.get("keys", "")
 

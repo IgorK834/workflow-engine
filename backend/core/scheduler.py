@@ -55,7 +55,7 @@ async def sync_workflows_to_scheduler():
     scheduler.remove_all_jobs()
 
     try:
-        async with AsyncSession(enigne) as session:
+        async with AsyncSession(engine) as session:
             stmt = select(Workflow).where(Workflow.is_active == True)
             result = await session.execute(stmt)
             active_workflows = result.scalars().all()

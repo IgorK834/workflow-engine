@@ -19,6 +19,7 @@ from .core.service_bus import start_message_listener
 from .models import WorkflowExecution, ExecutionStatus, Workflow
 from .core.engine import ExecutionEngine 
 from .core.imap_worker import imap_listener_worker
+from .core.scheduler import scheduler, sync_workflows_to_scheduler
 
 logger = logging.getLogger(__name__)
 
@@ -67,12 +68,17 @@ async def lifespan(app: FastAPI):
     worker_task = asyncio.create_task(start_message_listener())
     scheduler_task = asyncio.create_task(scheduler_worker())
     imap_task = asyncio.create_task(imap_listener_worker())
+
+    scheduler.start()
+    await sync_workflows_to_scheduler()
     
     yield
     
     worker_task.cancel()
     scheduler_task.cancel()
     imap_task.cancel()
+
+    scheduler.shutdown()
     
     await engine.dispose()
 

@@ -233,6 +233,37 @@ async def execute_json_transform(config: dict[str, Any], input_data: dict[str, A
 
     return filtered_data
 
+async def execute_switch(config: dict[str, Any], input_data: dict[str, Any]) -> dict[str, Any]:
+    """Wielokrotne rozgałęzienie w oparciu o warunki logiczne"""
+    variable = config.get("variable", "")
+    cases = config.get("cases", [])
+
+    actual_value = input_data.get(variable)
+
+    for case in cases:
+        operator = case.get("operator", "equals")
+        target_value = case.get("value", "")
+
+        result = False
+
+        try:
+            if operator == "equals":
+                result = str(actual_value) == str(target_value)
+            elif operator == "greater":
+                result = str(actual_value) > str(target_value)
+            elif operator == "less":
+                result = str(actual_value) < str(target_value)
+            elif operator == "contains":
+                result = str(target_value).lower() in str(actual_value).lower()
+        except (ValueError, TypeError) as e:
+            logger.error(f"[SWITCH] Błąd ewaluacji warunku: {e}")
+
+        if result:
+            logger.info(f"[SWITCH] Zmienna '{actual_value}' spełnia warunek '{target_value}'. Wybieram wyjście: {case.get('id')}")
+            return {"status": "success", "selected_handle": case.get("id"), "payload": input_data}
+        
+    logger.info(f"[SWITCH] Zmienna '{actual_value}' nie spełnia adnego z warunków. Wybieram wyjście 'default'")
+    return {"status": "success", "selected_handle": "default", "payload": input_data}
 
 RUNNERS_REGISTRY = {
     "webhook": execute_webhook,
@@ -243,6 +274,7 @@ RUNNERS_REGISTRY = {
     "send_email": execute_send_email,
     "delay": execute_delay,
     "json_transform": execute_json_transform,
+    "switch": execute_switch,
 }
 
 

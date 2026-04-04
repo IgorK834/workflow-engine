@@ -32,7 +32,7 @@ import {
 import TriggerNode from '../nodes/TriggerNode';
 import LogicNode from '../nodes/LogicNode';
 import ActionNode from '../nodes/ActionNode';
-import { createWorkflow } from '../api/workflows';
+import { createWorkflow, executeWorkflowTest, publishWorkflow } from '../api/workflows';
 
 const nodeTypes = {
   trigger: TriggerNode,
@@ -81,6 +81,7 @@ export default function WorkflowEditor({ onBack }: WorkflowEditorProps) {
   const [reactFlowInstance, setReactFlowInstance] = useState<ReactFlowInstance | null>(null);
   
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [savedWorkflowId, setSavedWorkflowId] = useState<string | null>(null)
 
   const selectedNode = useMemo(
     () => nodes.find((n) => n.id === selectedNodeId) || null,
@@ -207,11 +208,42 @@ export default function WorkflowEditor({ onBack }: WorkflowEditorProps) {
     // Wysyłanie do API
     try {
       console.log("Wysyłam payload: ", payload);
-      await createWorkflow(payload);
+      const response = await createWorkflow(payload);
+      setSavedWorkflowId(response.id);
       alert('Proces pomyślnie zapisany!');
     } catch (error) {
       console.error(error);
       alert('Wystąpił błąd podczas zapisu do bazy danych!');
+    }
+  };
+
+  const handleTest = async () => {
+    if (!savedWorkflowId) {
+      alert('Najpierw zapisz proces, aby móc go przetestować!');
+      return;
+    }
+    
+    try {
+      await executeWorkflowTest(savedWorkflowId);
+      alert('Test procesu uruchomiony pomyślnie!');
+    } catch (error) {
+      console.error(error);
+      alert('Wystąpił błąd podczas uruchamiania testu procesu!');
+    }
+  };
+
+  const handlePublish = async () => {
+    if (!savedWorkflowId) {
+      alert('Najpierw zapisz proces, aby móc go opublikować!');
+      return;
+    }
+    
+    try {
+      await publishWorkflow(savedWorkflowId);
+      alert('Proces został pomyślnie opublikowany!');
+    } catch (error) {
+      console.error(error);
+      alert('Wystąpił błąd podczas publikacji procesu!');
     }
   };
 
@@ -600,11 +632,11 @@ export default function WorkflowEditor({ onBack }: WorkflowEditorProps) {
             <Save className="w-4 h-4" />
             Zapisz
           </button>
-          <button className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-muted-foreground bg-white border border-border rounded-lg hover:bg-muted transition-colors">
+          <button onClick={handleTest} className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-muted-foreground bg-white border border-border rounded-lg hover:bg-muted transition-colors">
             <Play className="w-4 h-4" />
             Testuj
           </button>
-          <button className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-primary-foreground bg-primary rounded-lg hover:bg-primary/90 transition-colors">
+          <button onClick={handlePublish} className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-primary-foreground bg-primary rounded-lg hover:bg-primary/90 transition-colors">
             <Upload className="w-4 h-4" />
             Publikuj
           </button>

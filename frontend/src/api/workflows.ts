@@ -28,3 +28,11 @@ export async function createWorkflow(workflowData: any): Promise<Workflow> {
 export async function listWorkflows(): Promise<Workflow[]> {
   return apiRequest<Workflow[]>('/workflows/');
 }
+
+export async function executeWorkflowTest(workflowId: string): Promise<any> {
+  return apiRequest<any>(`/workflows/${workflowId}/execute`, {method: 'POST'});
+}
+
+export async function publishWorkflow(workflowId: string): Promise<Workflow> {
+  return apiRequest<Workflow>(`/workflows/${workflowId}/publish`, {method: 'PUT'});
+}

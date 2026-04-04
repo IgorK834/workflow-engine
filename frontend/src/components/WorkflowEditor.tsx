@@ -62,6 +62,7 @@ const nodeBlocks = [
       { type: 'logic', subtype: 'if_else', label: 'Jeśli / To (Warunek)', icon: GitBranch, description: 'Rozgałęzienie' },
       { type: 'logic', subtype: 'delay', label: 'Opóźnienie czasowe', icon: Clock, description: 'Pause & Resume (Baza)' },
       { type: 'logic', subtype: 'json_transform', label: 'Filtruj Dane', icon: FileJson, description: 'Wybiera tylko wybrane pola' },
+      { type: 'logic', subtype: 'switch', label: 'Switch (Wiele sciezek)', icon: GitBranch, description: 'WIelokrotne rozgałęzienie'},
     ],
   },
   {
@@ -151,7 +152,7 @@ export default function WorkflowEditor({ onBack }: WorkflowEditorProps) {
   };
 
   // Funkcja aktualizująca config wybranego węzła
-  const updateNodeConfig = (key: string, value: string) => {
+  const updateNodeConfig = (key: string, value: any) => {
     if (!selectedNodeId) return;
     setNodes((nds) =>
       nds.map((n) => {
@@ -607,6 +608,81 @@ export default function WorkflowEditor({ onBack }: WorkflowEditorProps) {
             </div>
           </div>
         );
+
+      // Formularz węzła Switch
+      case 'switch': {
+        const cases = config.cases || [];
+        
+        const addCase = () => {
+          const newCases = [...cases, { id: `case_${Date.now()}`, operator: 'equals', value: '' }];
+          updateNodeConfig('cases', newCases);
+        };
+        
+        const updateCase = (idx: number, field: string, val: string) => {
+          const newCases = [...cases];
+          newCases[idx] = { ...newCases[idx], [field]: val };
+          updateNodeConfig('cases', newCases);
+        };
+        
+        const removeCase = (idx: number) => {
+          const newCases = cases.filter((_: any, i: number) => i !== idx);
+          updateNodeConfig('cases', newCases);
+        };
+        
+        return (
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-foreground">Zmienna wejściowa do sprawdzenia</label>
+              <input
+                type="text"
+                placeholder="np. status_zamowienia"
+                className="w-full text-sm border-border rounded-md shadow-sm p-2.5 border focus:outline-none focus:ring-2 focus:ring-primary/50"
+                value={config.variable || ''}
+                onChange={(e) => updateNodeConfig('variable', e.target.value)}
+              />
+            </div>
+            
+            <div className="space-y-3 mt-4">
+              <label className="text-sm font-medium text-foreground">Ścieżki i warunki</label>
+              {cases.map((c: any, idx: number) => (
+                <div key={c.id} className="p-3 border border-border rounded-md bg-white space-y-2 relative shadow-sm">
+                  <div className="flex justify-between items-center mb-1">
+                      <span className="text-xs font-semibold text-primary">Wyjście: {c.id}</span>
+                      <button onClick={() => removeCase(idx)} className="text-red-500 hover:text-red-700 bg-red-50 p-1 rounded transition-colors">
+                        <X className="w-4 h-4" />
+                      </button>
+                  </div>
+                  <select
+                    className="w-full text-xs border-border rounded-md shadow-sm border p-2 focus:outline-none focus:ring-2 focus:ring-primary/50 bg-white"
+                    value={c.operator || 'equals'}
+                    onChange={(e) => updateCase(idx, 'operator', e.target.value)}
+                  >
+                    <option value="equals">Jest równe dokładnie</option>
+                    <option value="greater">Jest większe niż</option>
+                    <option value="less">Jest mniejsze niż</option>
+                    <option value="contains">Zawiera tekst</option>
+                  </select>
+                  <input
+                    type="text"
+                    placeholder="Wartość (np. 100 lub 'Opłacone')"
+                    className="w-full text-xs border-border rounded-md shadow-sm p-2 border focus:outline-none focus:ring-2 focus:ring-primary/50"
+                    value={c.value || ''}
+                    onChange={(e) => updateCase(idx, 'value', e.target.value)}
+                  />
+                </div>
+              ))}
+              <button onClick={addCase} className="w-full py-2 text-xs font-medium text-primary border border-primary/30 rounded-md hover:bg-primary/5 transition-colors">
+                + Dodaj warunek
+              </button>
+              <div className="p-3 bg-muted/50 rounded-lg border border-border mt-2">
+                <p className="text-[10px] text-muted-foreground leading-relaxed">
+                  Zawsze aktywne jest również wyjście <span className="font-semibold text-foreground">default</span>, którym polecą dane, jeśli żaden z powyższych warunków nie zostanie spełniony.
+                </p>
+              </div>
+            </div>
+          </div>
+        );
+      }
 
       default:
         return <p className="text-sm text-muted-foreground text-center mt-8">Brak dodatkowych opcji konfiguracji dla tego klocka.</p>;

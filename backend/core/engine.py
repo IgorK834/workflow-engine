@@ -89,9 +89,27 @@ class ExecutionEngine:
             if not incoming_edges:
                 input_data = initial_payload
             else:
+                valid_edges_count = 0
                 for edge in incoming_edges:
-                    source_output = node_outputs.get(edge.source, {})
-                    input_data.update(source_output)
+                    if edge.source not in node_outputs:
+                        continue
+
+                    source_output = node_outputs[edge.source]
+                    selected_handle = source_output.get("selected_handle")
+
+                    if selected_handle is not None:
+                        if edge.sourceHandle != selected_handle:
+                            continue
+
+                    payload = source_output.get("payload", source_output)
+                    filtered_payload = {k: v for k, v in payload.items() if k not in ["selected_handle", "status"]}
+
+                    input_data.update(filtered_payload)
+                    valid_edges_count += 1
+                
+                if valid_edges_count == 0:
+                    logger.info(f"[{self.execution_id}] Pomijam węzeł {node_id}")
+                    continue
 
             # Rejestracja startu kroku w bazie danych
             step = await self.state_manager.create_step(

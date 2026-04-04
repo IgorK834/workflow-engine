@@ -23,7 +23,7 @@ class StateManager:
         execution = WorkflowExecution(
             workflow_id=workflow_id,
             status=ExecutionStatus.RUNNING,
-            start_time=utc_now(),
+            start_at=utc_now(),
         )
         self.db.add(execution)
         await self.db.commit()

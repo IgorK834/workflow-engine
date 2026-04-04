@@ -38,5 +38,5 @@ export async function publishWorkflow(workflowId: string): Promise<Workflow> {
 }
 
 export async function deleteWorkflow(workflowId: string): Promise<any> {
-  return apiRequest<any>(`/worfklows/${workflowId}`, {method: 'DELETE'});
+  return apiRequest<any>(`/workflows/${workflowId}`, {method: 'DELETE'});
 }

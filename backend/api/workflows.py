@@ -101,3 +101,23 @@ async def trigger_webhook(
         "execution_id": str(execution.id),
         "payload_received": payload,
     }
+
+
+@router.put("/{workflpw_id}/publish", response_model=WorkflowResponse)
+async def publish_workflow(workflow_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    """Publikuje proces (zmienia is_active na True)"""
+    result = await db.execute(select(Workflow).where(Workflow.id == workflow_id))
+    workflow = result.scalar_one_or_none()
+
+    if not workflow:
+        raise HTTPException(
+            status_code=404, detail="Nie znaleziono procesu o podanym ID"
+        )
+
+    workflow.is_active = True
+
+    await db.commit()
+    await db.refresh(workflow)
+    await sync_workflows_to_scheduler()
+
+    return workflow

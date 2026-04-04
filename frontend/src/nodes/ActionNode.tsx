@@ -6,7 +6,7 @@ interface NodeData {
   description?: string;
 }
 
-export default function TriggerNode({ id, data }: { id: string, data: NodeData }) {
+export default function ActionNode({ id, data }: { id: string, data: NodeData }) {
     const { setNodes, setEdges } = useReactFlow();
 
     const handleDelete = () => {

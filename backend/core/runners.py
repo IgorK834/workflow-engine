@@ -17,25 +17,30 @@ from .security import decrypt_value
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+
 # Funkcja pomocnicza do http_request
 def inject_variables(text: str, data: dict) -> str:
     """Wyszukuje tagi {{klucz}} i podmienia je."""
     if not isinstance(text, str) or not text:
         return text
-    
+
     def replacer(match):
         key = match.group(1).strip()
         return str(data.get(key, ""))
-    
+
     return re.sub(r"\{\{\s*(.*?)\s*\}\}", replacer, text)
 
 
-async def execute_webhook(config: dict[str, Any], input_data: dict[str, Any]) -> dict[str, Any]:
+async def execute_webhook(
+    config: dict[str, Any], input_data: dict[str, Any]
+) -> dict[str, Any]:
     logger.info(f"Odebrano dane z Webhooka: {input_data}")
     return input_data
 
 
-async def execute_slack_msg(config: dict[str, Any], input_data: dict[str, Any]) -> dict[str, Any]:
+async def execute_slack_msg(
+    config: dict[str, Any], input_data: dict[str, Any]
+) -> dict[str, Any]:
     """Symulacja wysłania wiadomości na slacka"""
     channel = config.get("channel", "#general")
     message = config.get("message", "Pusta wiadomość")
@@ -50,7 +55,9 @@ async def execute_slack_msg(config: dict[str, Any], input_data: dict[str, Any]) 
     }
 
 
-async def execute_if_else(config: dict[str, Any], input_data: dict[str, Any]) -> dict[str, Any]:
+async def execute_if_else(
+    config: dict[str, Any], input_data: dict[str, Any]
+) -> dict[str, Any]:
     variable = config.get("variable")
     operator = config.get("operator")
     target_value = config.get("value")
@@ -81,7 +88,9 @@ async def execute_if_else(config: dict[str, Any], input_data: dict[str, Any]) ->
     }
 
 
-async def execute_db_insert(config: dict[str, Any], input_data: dict[str, Any]) -> dict[str, Any]:
+async def execute_db_insert(
+    config: dict[str, Any], input_data: dict[str, Any]
+) -> dict[str, Any]:
     """Symulacja zapisu do bazy danych"""
     table = config.get("table", "unknown_table")
 
@@ -90,7 +99,9 @@ async def execute_db_insert(config: dict[str, Any], input_data: dict[str, Any]) 
     return {"status": "inserted", "table": table, "inserted_record": input_data}
 
 
-async def execute_http_request(config: dict[str, Any], input_data: dict[str, Any]) -> dict[str, Any]:
+async def execute_http_request(
+    config: dict[str, Any], input_data: dict[str, Any]
+) -> dict[str, Any]:
     """Wysyła request HTTP do zewnętrznego API z obsługą wstrzykiwania zmiennych"""
     raw_url = config.get("url", "")
     method = config.get("method", "GET").upper()
@@ -109,8 +120,12 @@ async def execute_http_request(config: dict[str, Any], input_data: dict[str, Any
         headers = json.loads(headers_str) if headers_str.strip() else {}
         body = json.loads(body_str) if body_str.strip() else {}
     except json.JSONDecodeError as e:
-        logger.error(f"[HTTP REQUEST] Błąd parsowania JSON po wstrzyknięciu zmiennych. Payload: {body_str}")
-        raise ValueError(f"Błąd parsowania JSON (nagłówki lub ciało) po interpolacji: {e}")
+        logger.error(
+            f"[HTTP REQUEST] Błąd parsowania JSON po wstrzyknięciu zmiennych. Payload: {body_str}"
+        )
+        raise ValueError(
+            f"Błąd parsowania JSON (nagłówki lub ciało) po interpolacji: {e}"
+        )
 
     logger.info(f"[HTTP REQUEST] {method} -> {url}")
 
@@ -136,7 +151,9 @@ async def execute_http_request(config: dict[str, Any], input_data: dict[str, Any
         raise ValueError(f"Błąd połączenia HTTP z zewnętrznym API: {exc}")
 
 
-async def execute_send_email(config: dict[str, Any], input_data: dict[str, Any], db: AsyncSession = None) -> dict[str, Any]:
+async def execute_send_email(
+    config: dict[str, Any], input_data: dict[str, Any], db: AsyncSession = None
+) -> dict[str, Any]:
     """Wysyłka email"""
     if not db:
         raise ValueError("Brak połączenia z bazą danych")
@@ -187,7 +204,9 @@ async def execute_send_email(config: dict[str, Any], input_data: dict[str, Any],
         raise ValueError(f"Wsytąpił błąd podczas wysyłania e-maila: {str(e)}")
 
 
-async def execute_delay(config: dict[str, Any], input_data: dict[str, Any]) -> dict[str, Any]:
+async def execute_delay(
+    config: dict[str, Any], input_data: dict[str, Any]
+) -> dict[str, Any]:
     """Wstrzymujemy wykonanie procesu na podany czas"""
     try:
         value = float(config.get("value", 0))
@@ -218,7 +237,9 @@ async def execute_delay(config: dict[str, Any], input_data: dict[str, Any]) -> d
     }
 
 
-async def execute_json_transform(config: dict[str, Any], input_data: dict[str, Any]) -> dict[str, Any]:
+async def execute_json_transform(
+    config: dict[str, Any], input_data: dict[str, Any]
+) -> dict[str, Any]:
     """Filtracja danych - przepuszcza tylko wybrane klucze JSON"""
     keys_str = config.get("keys", "")
 
@@ -233,7 +254,10 @@ async def execute_json_transform(config: dict[str, Any], input_data: dict[str, A
 
     return filtered_data
 
-async def execute_switch(config: dict[str, Any], input_data: dict[str, Any]) -> dict[str, Any]:
+
+async def execute_switch(
+    config: dict[str, Any], input_data: dict[str, Any]
+) -> dict[str, Any]:
     """Wielokrotne rozgałęzienie w oparciu o warunki logiczne"""
     variable = config.get("variable", "")
     cases = config.get("cases", [])
@@ -259,11 +283,45 @@ async def execute_switch(config: dict[str, Any], input_data: dict[str, Any]) -> 
             logger.error(f"[SWITCH] Błąd ewaluacji warunku: {e}")
 
         if result:
-            logger.info(f"[SWITCH] Zmienna '{actual_value}' spełnia warunek '{target_value}'. Wybieram wyjście: {case.get('id')}")
-            return {"status": "success", "selected_handle": case.get("id"), "payload": input_data}
-        
-    logger.info(f"[SWITCH] Zmienna '{actual_value}' nie spełnia adnego z warunków. Wybieram wyjście 'default'")
+            logger.info(
+                f"[SWITCH] Zmienna '{actual_value}' spełnia warunek '{target_value}'. Wybieram wyjście: {case.get('id')}"
+            )
+            return {
+                "status": "success",
+                "selected_handle": case.get("id"),
+                "payload": input_data,
+            }
+
+    logger.info(
+        f"[SWITCH] Zmienna '{actual_value}' nie spełnia adnego z warunków. Wybieram wyjście 'default'"
+    )
     return {"status": "success", "selected_handle": "default", "payload": input_data}
+
+
+async def execute_for_each(
+    config: dict[str, Any], input_data: dict[str, Any]
+) -> dict[str, Any]:
+    """Węzeł rozgałęziający"""
+    array_key = config.get("array_variable", "")
+    target_workflow_id = config.get("target_workflow_id")
+
+    if not array_key or not target_workflow_id:
+        raise ValueError("Skonfiguruj węzeł: brak zmiennej lub id docelowego procesu!")
+
+    items = input_data.get(array_key)
+    if not isinstance(items, list):
+        raise ValueError(f"Zmienna wejściowa '{array_key}' nie jest poprawną tablicą!")
+
+    logger.info(
+        f"[FOR EACH] Przygotowano {len(items)} elementów do iteracji na procesie {target_workflow_id}."
+    )
+
+    return {
+        "__spawn_subworkflows__": True,
+        "target_workflow_id": target_workflow_id,
+        "items": items,
+    }
+
 
 RUNNERS_REGISTRY = {
     "webhook": execute_webhook,
@@ -275,6 +333,7 @@ RUNNERS_REGISTRY = {
     "delay": execute_delay,
     "json_transform": execute_json_transform,
     "switch": execute_switch,
+    "for_each": execute_for_each,
 }
 
 

@@ -29,7 +29,8 @@ import {
   Clock,
   FileJson,
   Copy,
-  Trello
+  Trello,
+  CheckCircle,
 } from 'lucide-react';
 import TriggerNode from '../nodes/TriggerNode';
 import LogicNode from '../nodes/LogicNode';
@@ -67,6 +68,7 @@ const nodeBlocks = [
       { type: 'logic', subtype: 'json_transform', label: 'Filtruj Dane', icon: FileJson, description: 'Wybiera tylko wybrane pola' },
       { type: 'logic', subtype: 'switch', label: 'Switch (Wiele sciezek)', icon: GitBranch, description: 'WIelokrotne rozgałęzienie'},
       { type: 'logic', subtype: 'for_each', label: 'Pętla (For Each)', icon: GitBranch, description: 'Uruchamia podprocesy' },
+      { type: 'logic', subtype: 'manual_approval', label: 'Ręczna Akceptacja', icon: CheckCircle, description: 'Wstrzymuje proces do zatwierdzenia' },
     ],
   },
   {
@@ -781,6 +783,20 @@ export default function WorkflowEditor({ onBack }: WorkflowEditorProps) {
           </div>
         );
       }
+
+      // Formularz akceptacji manualnej przez uytkownika
+      case 'manual_approval':
+        return (
+          <div className="space-y-4">
+             <div className="p-4 bg-amber-50 rounded-lg border border-amber-200">
+               <h4 className="text-sm font-semibold text-amber-800 mb-2">Oczekiwanie na decyzję</h4>
+               <p className="text-xs text-amber-700 leading-relaxed">
+                 Kiedy proces dotrze do tego klocka, zostanie trwale wstrzymany. 
+                 Aby puścić go dalej, należy przejść do zakładki <b>Moje Procesy</b> i kliknąć zieloną ikonkę "Akceptuj" obok danego procesu.
+               </p>
+             </div>
+          </div>
+        );
 
       default:
         return <p className="text-sm text-muted-foreground text-center mt-8">Brak dodatkowych opcji konfiguracji dla tego klocka.</p>;

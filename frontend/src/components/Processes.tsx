@@ -1,6 +1,6 @@
-import { Trash2 } from 'lucide-react';
+import { Trash2, CheckCircle } from 'lucide-react';
 import { useWorkflows } from '../hooks/useWorkflows';
-import { deleteWorkflow } from '../api/workflows';
+import { deleteWorkflow, resumeWorkflow } from '../api/workflows';
 
 export default function Processes() {
   const { workflows, isLoading, error, reload } = useWorkflows();
@@ -17,6 +17,17 @@ export default function Processes() {
     }
   };
 
+  const handleResume = async (id: string) => {
+    try {
+      await resumeWorkflow(id);
+      alert('Akceptacja potwierdzona! Proces ruszył dalej.');
+      await reload();
+    } catch (err: any) {
+      console.error('Błąd wznawiania:', err);
+      alert('Nie udało się wznowić. Prawdopodobnie ten proces nie oczekuje obecnie na akceptację.');
+    }
+  };
+
   return (
     <div className="flex-1 bg-muted/30 overflow-auto">
       <header className="bg-white border-b border-border px-8 py-6">
@@ -29,7 +40,7 @@ export default function Processes() {
             onClick={() => void reload()}
             className="px-4 py-2 rounded-lg text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
           >
-            Odswież
+            Odśwież
           </button>
         </div>
       </header>
@@ -39,59 +50,42 @@ export default function Processes() {
           <table className="w-full">
             <thead>
               <tr className="border-b border-border bg-muted/50">
-                <th className="text-left px-6 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                  Nazwa
-                </th>
-                <th className="text-left px-6 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                  Opis
-                </th>
-                <th className="text-left px-6 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                  Status
-                </th>
-                <th className="text-left px-6 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                  Aktualizacja
-                </th>
-                <th className="text-right px-6 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                  Akcje
-                </th>
+                <th className="text-left px-6 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">Nazwa</th>
+                <th className="text-left px-6 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">Opis</th>
+                <th className="text-left px-6 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">Status</th>
+                <th className="text-left px-6 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">Aktualizacja</th>
+                <th className="text-right px-6 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">Akcje</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {isLoading && (
-                <tr>
-                  <td className="px-6 py-8 text-sm text-muted-foreground text-center" colSpan={5}>
-                    Ładowanie danych...
-                  </td>
-                </tr>
-              )}
-              {error && !isLoading && (
-                <tr>
-                  <td className="px-6 py-8 text-sm text-red-500 text-center" colSpan={5}>
-                    Błąd API: {error}
-                  </td>
-                </tr>
-              )}
-              {!isLoading &&
-                !error &&
-                workflows.map((wf) => (
+              {isLoading && <tr><td className="px-6 py-8 text-sm text-muted-foreground text-center" colSpan={5}>Ładowanie danych...</td></tr>}
+              {error && !isLoading && <tr><td className="px-6 py-8 text-sm text-red-500 text-center" colSpan={5}>Błąd API: {error}</td></tr>}
+              
+              {!isLoading && !error && workflows.map((wf) => (
                   <tr key={wf.id} className="hover:bg-muted/30 transition-colors group">
                     <td className="px-6 py-4 text-sm font-medium text-foreground">{wf.name}</td>
                     <td className="px-6 py-4 text-sm text-muted-foreground">{wf.description || '-'}</td>
                     <td className="px-6 py-4 text-sm text-muted-foreground">
                       {wf.is_active ? (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">
-                          Aktywny
-                        </span>
+                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">Aktywny</span>
                       ) : (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-800">
-                          Nieaktywny
-                        </span>
+                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-800">Nieaktywny</span>
                       )}
                     </td>
                     <td className="px-6 py-4 text-sm text-muted-foreground">
                       {new Date(wf.updated_at).toLocaleString('pl-PL')}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                      
+                      {/* NOWY PRZYCISK WZNAWIANIA */}
+                      <button
+                        onClick={() => handleResume(wf.id)}
+                        className="text-green-600 hover:text-green-700 hover:bg-green-50 p-2 rounded-md transition-colors opacity-0 group-hover:opacity-100 mr-2"
+                        title="Akceptuj i wznów zapauzowany proces"
+                      >
+                        <CheckCircle className="w-5 h-5" />
+                      </button>
+
                       <button
                         onClick={() => handleDelete(wf.id)}
                         className="text-red-500 hover:text-red-700 hover:bg-red-50 p-2 rounded-md transition-colors opacity-0 group-hover:opacity-100"
@@ -99,16 +93,10 @@ export default function Processes() {
                       >
                         <Trash2 className="w-5 h-5" />
                       </button>
+
                     </td>
                   </tr>
                 ))}
-              {!isLoading && !error && workflows.length === 0 && (
-                <tr>
-                  <td className="px-6 py-8 text-sm text-muted-foreground text-center" colSpan={5}>
-                    Brak workflow w bazie danych.
-                  </td>
-                </tr>
-              )}
             </tbody>
           </table>
         </div>

@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from sqlalchemy import update
+from sqlalchemy import func, case
 import uuid
 import asyncio
 
@@ -127,6 +127,23 @@ async def publish_workflow(workflow_id: uuid.UUID, db: AsyncSession = Depends(ge
 
     return workflow
 
+
+@router.patch("/{workflow_id}/toggle", response_model=WorkflowResponse)
+async def toggle_workflow(workflow_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    """Zmienia status procesu (Stop/Wznów) poprzez przełączenie flagi is_active."""
+    result = await db.execute(select(Workflow).where(Workflow.id == workflow_id))
+    workflow = result.scalar_one_or_none()
+
+    if not workflow:
+        raise HTTPException(status_code=404, detail="Nie znaleziono procesu o podanym ID")
+
+    workflow.is_active = not bool(workflow.is_active)
+    await db.commit()
+    await db.refresh(workflow)
+    await sync_workflows_to_scheduler()
+
+    return workflow
+
 @router.delete("/{workflow_id}")
 async def delete_workflow(workflow_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
     """Usuwa proces z bazy danych"""
@@ -141,6 +158,78 @@ async def delete_workflow(workflow_id: uuid.UUID, db: AsyncSession = Depends(get
     await sync_workflows_to_scheduler()
 
     return {"status": "deleted"}
+
+
+@router.get("/stats")
+async def get_workflows_stats(days: int = 7, db: AsyncSession = Depends(get_db)):
+    """Proste statystyki wykonań z ostatnich dni (pod analitykę)."""
+    safe_days = max(1, min(int(days), 90))
+
+    # Grupowanie po dniu na podstawie started_at
+    day_bucket = func.date_trunc("day", WorkflowExecution.started_at).label("day")
+
+    stmt = (
+        select(
+            day_bucket,
+            func.count(WorkflowExecution.id).label("total"),
+            func.sum(case((WorkflowExecution.status == ExecutionStatus.COMPLETED, 1), else_=0)).label(
+                "completed"
+            ),
+            func.sum(case((WorkflowExecution.status == ExecutionStatus.FAILED, 1), else_=0)).label("failed"),
+            func.sum(case((WorkflowExecution.status == ExecutionStatus.PAUSED, 1), else_=0)).label("paused"),
+            func.sum(case((WorkflowExecution.status == ExecutionStatus.RUNNING, 1), else_=0)).label("running"),
+        )
+        .where(WorkflowExecution.started_at >= func.now() - func.make_interval(days=safe_days))
+        .group_by(day_bucket)
+        .order_by(day_bucket.desc())
+    )
+
+    result = await db.execute(stmt)
+    rows = result.all()
+
+    return {
+        "days": safe_days,
+        "series": [
+            {
+                "day": (r.day.isoformat() if getattr(r, "day", None) else None),
+                "total": int(r.total or 0),
+                "completed": int(r.completed or 0),
+                "failed": int(r.failed or 0),
+                "paused": int(r.paused or 0),
+                "running": int(r.running or 0),
+            }
+            for r in rows
+        ],
+    }
+
+
+@router.get("/logs")
+async def get_workflows_logs(limit: int = 50, db: AsyncSession = Depends(get_db)):
+    """Najnowsze zdarzenia z tabeli ExecutionStep (pod monitoring/analitykę)."""
+    safe_limit = max(1, min(int(limit), 200))
+
+    result = await db.execute(
+        select(ExecutionStep)
+        .order_by(ExecutionStep.started_at.desc())
+        .limit(safe_limit)
+    )
+    steps = result.scalars().all()
+
+    return {
+        "limit": safe_limit,
+        "items": [
+            {
+                "id": str(s.id),
+                "execution_id": str(s.execution_id),
+                "node_id": s.node_id,
+                "status": (s.status.value if hasattr(s.status, "value") else str(s.status)),
+                "started_at": s.started_at.isoformat() if s.started_at else None,
+                "finished_at": s.finished_at.isoformat() if s.finished_at else None,
+                "error_message": s.error_message,
+            }
+            for s in steps
+        ],
+    }
 
 @router.get("/nodes/jira/projects")
 async def fetch_jira_projects(db: AsyncSession = Depends(get_db)):
@@ -163,10 +252,6 @@ async def fetch_jira_projects(db: AsyncSession = Depends(get_db)):
         return [{"id": p["id"], "key": p["key"], "name": p["name"]} for p in projects]
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
-
-import asyncio
-from sqlalchemy import update
-from ..core.state_manager import StateManager
 from ..core.engine import ExecutionEngine
 
 @router.post("/{workflow_id}/resume")

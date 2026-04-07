@@ -275,7 +275,7 @@ export default function WorkflowEditor({ onBack }: WorkflowEditorProps) {
                     navigator.clipboard.writeText(webhookUrl);
                     alert("Skopiowano do schowka!");
                   }}
-                  className="p-2 bg-white border border-border rounded-md hover:bg-muted transition-colors text-foreground shadow-sm"
+                  className="p-2 bg-white border border-border rounded-md hover:bg-muted transition-colors text-foreground shadow-sm shrink-0"
                   title="Kopiuj URL"
                 >
                   <Copy className="w-4 h-4" />
@@ -441,7 +441,7 @@ export default function WorkflowEditor({ onBack }: WorkflowEditorProps) {
               <div key={item.id || idx} className="flex gap-2 items-center">
                 <input type="text" placeholder="Klucz" className="w-1/3 text-xs p-1.5 border rounded" value={item.key} onChange={(e) => updateListItem(configKey, list, idx, 'key', e.target.value)} />
                 <input type="text" placeholder="Wartość" className="w-full text-xs p-1.5 border rounded" value={item.value} onChange={(e) => updateListItem(configKey, list, idx, 'value', e.target.value)} />
-                <button onClick={() => removeListItem(configKey, list, idx)} className="text-red-500"><X className="w-3 h-3"/></button>
+                <button onClick={() => removeListItem(configKey, list, idx)} className="text-red-500 shrink-0"><X className="w-3 h-3"/></button>
               </div>
             ))}
           </div>
@@ -620,7 +620,6 @@ export default function WorkflowEditor({ onBack }: WorkflowEditorProps) {
                 </p>
               </div>
             )}
-
             <div className="p-3 mt-4 bg-primary/5 rounded-lg border border-primary/20">
               <p className="text-xs text-muted-foreground leading-relaxed text-center">
                 Harmonogram jest weryfikowany na serwerze i automatycznie synchronizowany po zapisaniu procesu.
@@ -668,7 +667,7 @@ export default function WorkflowEditor({ onBack }: WorkflowEditorProps) {
                 <div key={c.id} className="p-3 border border-border rounded-md bg-white space-y-2 relative shadow-sm">
                   <div className="flex justify-between items-center mb-1">
                       <span className="text-xs font-semibold text-primary">Wyjście: {c.id}</span>
-                      <button onClick={() => removeCase(idx)} className="text-red-500 hover:text-red-700 bg-red-50 p-1 rounded transition-colors">
+                      <button onClick={() => removeCase(idx)} className="text-red-500 hover:text-red-700 bg-red-50 p-1 rounded transition-colors shrink-0">
                         <X className="w-4 h-4" />
                       </button>
                   </div>
@@ -758,7 +757,7 @@ export default function WorkflowEditor({ onBack }: WorkflowEditorProps) {
                 <div key={m.id || idx} className="p-2 border border-border rounded-md bg-white space-y-2 relative shadow-sm">
                   <div className="flex justify-between items-center">
                     <span className="text-[10px] font-semibold text-muted-foreground uppercase">Reguła {idx + 1}</span>
-                    <button onClick={() => removeMapping(idx)} className="text-red-500 hover:text-red-700">
+                    <button onClick={() => removeMapping(idx)} className="text-red-500 hover:text-red-700 shrink-0">
                       <X className="w-3 h-3" />
                     </button>
                   </div>
@@ -787,8 +786,8 @@ export default function WorkflowEditor({ onBack }: WorkflowEditorProps) {
   };
 
   return (
-    <div className="flex-1 flex flex-col bg-muted/30">
-      <header className="bg-white border-b border-border px-6 py-3 flex items-center justify-between">
+    <div className="flex-1 flex flex-col bg-muted/30 h-full overflow-hidden">
+      <header className="bg-white border-b border-border px-6 py-3 flex items-center justify-between shrink-0">
         <div className="flex items-center gap-4">
           <button
             onClick={onBack}
@@ -816,8 +815,8 @@ export default function WorkflowEditor({ onBack }: WorkflowEditorProps) {
         </div>
       </header>
 
-      <div className="flex-1 flex">
-        <aside className="w-72 bg-white border-r border-border overflow-y-auto">
+      <div className="flex-1 flex overflow-hidden relative">
+        <aside className="w-72 bg-white border-r border-border overflow-y-auto shrink-0 h-full relative z-10">
           <div className="p-4">
             <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-4">
               Przeciągnij na płótno
@@ -861,7 +860,7 @@ export default function WorkflowEditor({ onBack }: WorkflowEditorProps) {
           </div>
         </aside>
 
-        <div className="flex-1 relative flex">
+        <div className="flex-1 relative h-full">
           <ReactFlow
             nodes={nodes}
             edges={edges}
@@ -885,7 +884,7 @@ export default function WorkflowEditor({ onBack }: WorkflowEditorProps) {
 
           {selectedNode && (
             <aside className="w-80 bg-white border-l border-border flex flex-col absolute right-0 top-0 bottom-0 z-10 shadow-2xl transition-all">
-              <div className="px-4 py-4 border-b border-border flex justify-between items-center bg-muted/20">
+              <div className="px-4 py-4 border-b border-border flex justify-between items-center bg-muted/20 shrink-0">
                 <div className="flex items-center gap-2">
                   <Settings2 className="w-4 h-4 text-muted-foreground" />
                   <h3 className="text-sm font-semibold text-foreground">Konfiguracja</h3>
@@ -898,7 +897,7 @@ export default function WorkflowEditor({ onBack }: WorkflowEditorProps) {
                 </button>
               </div>
               
-              <div className="p-4 border-b border-border bg-muted/10">
+              <div className="p-4 border-b border-border bg-muted/10 shrink-0">
                  <p className="text-xs font-semibold text-primary uppercase tracking-wider">{selectedNode.data.label as string}</p>
                  <p className="text-xs text-muted-foreground mt-1">ID klocka: {selectedNode.id}</p>
               </div>

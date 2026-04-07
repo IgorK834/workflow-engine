@@ -28,7 +28,8 @@ import {
   Mail,
   Clock,
   FileJson,
-  Copy
+  Copy,
+  Trello
 } from 'lucide-react';
 import TriggerNode from '../nodes/TriggerNode';
 import LogicNode from '../nodes/LogicNode';
@@ -76,6 +77,7 @@ const nodeBlocks = [
       { type: 'action', subtype: 'http_request', label: 'Zewnętrzny Webhook API', icon: Globe, description: 'Request HTTP (GET/POST)' },
       { type: 'action', subtype: 'db_insert', label: 'Zapisz do Bazy', icon: Database, description: 'INSERT/UPDATE' },
       { type: 'action', subtype: 'data_mapper', label: 'Mapowanie Danych', icon: FileJson, description: 'Transformacja JSON' },
+      { type: 'action', subtype: 'jira_create_ticket', label: 'Jira: Utwórz Ticket', icon: Trello, description: 'Tworzy zgłoszenie w JIRA' },
     ],
   },
 ];

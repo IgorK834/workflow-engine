@@ -8,7 +8,7 @@ from ..models import SystemSetting
 from ..schemas import SystemSettingCreate, SystemSettingResponse
 from ..core.security import encrypt_value
 
-router = APIRouter(prefix="/settigns", tags=["Settings"])
+router = APIRouter(prefix="/settings", tags=["Settings"])
 
 
 def secure_payload(payload: dict) -> dict:
@@ -45,7 +45,7 @@ async def upsert_setting(
     result = await db.execute(
         select(SystemSetting).where(SystemSetting.key == setting_in.key)
     )
-    existing_setting = result.scalar_one_or_none
+    existing_setting = result.scalar_one_or_none()
 
     if existing_setting:
         existing_setting.value = secured_value

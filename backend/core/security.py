@@ -30,7 +30,7 @@ def decrypt_value(encrypted_value: str) -> str:
 
     try:
         f = get_fernet()
-        return f.decrypt(encrypt_value.encode()).decode
+        return f.decrypt(encrypted_value.encode()).decode()
     except InvalidToken:
         logger.warning(
             "Błąd deszyfrowania: Wartość moze nie być zaszyfrowana lub uzyto błędnego klucza!"

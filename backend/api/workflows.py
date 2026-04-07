@@ -9,6 +9,9 @@ from ..schemas import WorkflowCreate, WorkflowResponse, WorkflowExecutiveRespons
 from ..models import Workflow, WorkflowExecution
 from ..core.state_manager import StateManager
 from ..core.scheduler import sync_workflows_to_scheduler
+from ..core.security import decrypt_value
+from ..core.runners import JiraClient
+from ..models import SystemSetting
 
 router = APIRouter(prefix="/workflows", tags=["workflows"])
 
@@ -136,3 +139,25 @@ async def delete_workflow(workflow_id: uuid.UUID, db: AsyncSession = Depends(get
     await sync_workflows_to_scheduler()
 
     return {"status": "deleted"}
+
+@router.get("/nodes/jira/projects")
+async def fetch_jira_projects(db: AsyncSession = Depends(get_db)):
+    """Pobieranie listy projektów z Jira poprzez dane wczytane z ustawień uytkownika."""
+    result = await db.execute(select(SystemSetting).where(SystemSetting.key == "jira_profile"))
+    setting = result.scalar_one_or_none()
+
+    if not setting or not setting.value:
+        raise HTTPException(status_code=400, detail="Brak konfiguracji Jira w ustawieniach.")
+    
+    jira_config = setting.value
+    domain = jira_config.get("domain")
+    email = jira_config.get("email")
+    api_token = decrypt_value(jira_config.get("api_token", ""))
+
+    client = JiraClient(domain, email, api_token)
+
+    try:
+        projects = await client.get_projects()
+        return [{"id": p["id"], "key": p["key"], "name": p["name"]} for p in projects]
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))

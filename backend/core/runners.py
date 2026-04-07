@@ -3,6 +3,7 @@ import httpx
 import json
 import aiosmtplib
 import re
+import base64
 
 from email.message import EmailMessage
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -30,17 +31,36 @@ def inject_variables(text: str, data: dict) -> str:
 
     return re.sub(r"\{\{\s*(.*?)\s*\}\}", replacer, text)
 
+class JiraClient:
+    """Pomocniczy klient do komunikacji z Jira REST API v3"""
+    def __init__(self, domain: str, email: str, api_token: str):
+        self.base_url = f"https://{domain}.atlassian.net/rest/api/v3"
+        auth_str = f"{email}:{api_token}"
+        encoded_auth = base64.b64encode(auth_str.encode()).decode()
+        self.headers = {
+            "Authorization": f"Basic {encoded_auth}",
+            "Accept": "application/json",
+            "Content-Type": "application/json"
+        }
 
-async def execute_webhook(
-    config: dict[str, Any], input_data: dict[str, Any]
-) -> dict[str, Any]:
+    async def get_projects(self):
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(f"{self.base_url}/projects", headers=self.headers)
+            resp.raise_for_status()
+            return resp.json()
+        
+    async def get_issue_types(self, project_id: str):
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(f"{self.base_url}/issuetype/project?ProjectId={project_id}", headers=self.headers)
+            resp.raise_for_status()
+            return resp.json()
+
+async def execute_webhook(config: dict[str, Any], input_data: dict[str, Any]) -> dict[str, Any]:
     logger.info(f"Odebrano dane z Webhooka: {input_data}")
     return input_data
 
 
-async def execute_slack_msg(
-    config: dict[str, Any], input_data: dict[str, Any]
-) -> dict[str, Any]:
+async def execute_slack_msg(config: dict[str, Any], input_data: dict[str, Any]) -> dict[str, Any]:
     """Symulacja wysłania wiadomości na slacka"""
     channel = config.get("channel", "#general")
     message = config.get("message", "Pusta wiadomość")
@@ -55,9 +75,7 @@ async def execute_slack_msg(
     }
 
 
-async def execute_if_else(
-    config: dict[str, Any], input_data: dict[str, Any]
-) -> dict[str, Any]:
+async def execute_if_else(config: dict[str, Any], input_data: dict[str, Any]) -> dict[str, Any]:
     variable = config.get("variable")
     operator = config.get("operator")
     target_value = config.get("value")
@@ -88,9 +106,7 @@ async def execute_if_else(
     }
 
 
-async def execute_db_insert(
-    config: dict[str, Any], input_data: dict[str, Any]
-) -> dict[str, Any]:
+async def execute_db_insert(config: dict[str, Any], input_data: dict[str, Any]) -> dict[str, Any]:
     """Symulacja zapisu do bazy danych"""
     table = config.get("table", "unknown_table")
 
@@ -379,6 +395,69 @@ async def execute_for_each(
         "items": items,
     }
 
+async def execute_jira_create_ticket(config: dict[str, Any], input_data: dict[str, Any], db: AsyncSession = None) -> dict[str, Any]:
+    """Węzeł tworzący ticket w Jira przy uyciu ADF"""
+    if not db:
+        raise ValueError("[JIRA] Brak połączenia z bazą danych")
+    
+    result = await db.execute(select(SystemSetting).where(SystemSetting.key == "jira_profile"))
+    setting = result.scalar_one_or_none()
+
+    if not setting or not setting.value:
+        raise ValueError("[JIRA] Skonfiguruj połączenie z Jira w zakładze ustawienia.")
+    
+    jira_config = setting.value
+    domain = jira_config.get("domain")
+    email = jira_config.get("email")
+    raw_api_token = jira_config.get("api_token", "")
+    api_token = decrypt_value(raw_api_token) if raw_api_token else None
+
+    # Dynamiczne mapowanie wartości
+    project_key = inject_variables(config.get("project_key", ""), input_data)
+    issue_type = config.get("issue_type", "Task")
+    summary = inject_variables(config.get("summary", ""), input_data)
+    description_text = inject_variables(config.get("description", ""), input_data)
+
+    if not all([domain, email, api_token, project_key, summary]):
+        raise ValueError("[JIRA] Brak wymaganej konfiguracji dla węzła Jira!")
+    
+    jira = JiraClient(domain, email, api_token)
+
+    payload = {
+        "fields": {
+            "project": {"key": project_key},
+            "summary": summary,
+            "issuetype": {"name": issue_type},
+            "description": {
+                "type": "doc",
+                "version": 1,
+                "content": [
+                    {
+                        "type": "paragraph",
+                        "content": [{"type": "text", "text": description_text}]
+                    }
+                ]
+            }
+        }
+    }  
+
+    logger.info(f"[JIRA] Tworzę zgłoszenie w projekcie: {project_key}: {summary}")
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        response = await client.post(f"{jira.base_url}/issue", json=payload, headers=jira.headers)
+
+        if response.status_code != 201:
+            logger.error(f"[JIRA] Error {response.text}")
+            raise ValueError(f"[JIRA] Api error: {response.status_code} - {response.text}")
+        
+        data = response.json()
+        return {
+            "issue_id": data["id"],
+            "issue_key": data["key"],
+            "url": f"https://{domain}/atlassian.net/browse/{data['key']}",
+            "status": "created"
+        }
+
 
 RUNNERS_REGISTRY = {
     "webhook": execute_webhook,
@@ -391,6 +470,7 @@ RUNNERS_REGISTRY = {
     "json_transform": execute_json_transform,
     "switch": execute_switch,
     "for_each": execute_for_each,
+    "jira_create_ticket": execute_jira_create_ticket,
 }
 
 

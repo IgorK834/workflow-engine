@@ -1,5 +1,6 @@
 import uuid
 import logging
+import asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update
 from datetime import datetime, timezone, timedelta
@@ -7,7 +8,8 @@ from datetime import datetime, timezone, timedelta
 from .parser import DAGParser
 from .state_manager import StateManager
 from .runners import run_node_task
-from ..models import ExecutionStatus, ExecutionStep, WorkflowExecution
+from ..database import engine as db_engine
+from ..models import ExecutionStatus, ExecutionStep, WorkflowExecution, Workflow
 from ..schemas import WorkflowGraph
 
 logger = logging.getLogger(__name__)
@@ -153,6 +155,63 @@ class ExecutionEngine:
                     )
 
                     return
+
+                if isinstance(output_data, dict) and output_data.get(
+                    "__spawn_subworkflows__"
+                ):
+                    target_wf_id_str = output_data.get("target_workflow_id")
+                    items = output_data.get("items", [])
+
+                    try:
+                        target_wf_id = uuid.UUID(target_wf_id_str)
+                    except ValueError:
+                        raise ValueError(
+                            f"Niepoprawny format UUID procesu docelowego: {target_wf_id_str}"
+                        )
+
+                    result = await self.db.execute(
+                        select(Workflow).where(Workflow.id == target_wf_id)
+                    )
+                    target_workflow = result.scalar_one_or_none()
+
+                    if not target_workflow:
+                        raise ValueError(
+                            f"Proces podrzędny o ID {target_wf_id} nie istnieje lub został usunięty."
+                        )
+
+                    for item in items:
+                        item_payload = (
+                            item if isinstance(item, dict) else {"iteration_item": item}
+                        )
+
+                        sub_exec = WorkflowExecution(
+                            workflow_id=target_wf_id,
+                            status=ExecutionStatus.PENDING,
+                            parent_id=self.execution_id,
+                        )
+                        self.db.add(sub_exec)
+                        await self.db.commit()
+                        await self.db.refresh(sub_exec)
+
+                        async def run_sub_execution(exec_id, payload, graph):
+                            async with AsyncSession(db_engine) as sub_session:
+                                sub_engine = ExecutionEngine(sub_session, exec_id)
+                                await sub_engine.run(graph, initial_payload=payload)
+
+                        asyncio.create_task(
+                            run_sub_execution(
+                                sub_exec.id, item_payload, target_workflow.graph_json
+                            )
+                        )
+
+                    logger.info(
+                        f"[{self.execution_id}] Pomyślnie rozszczepiono {len(items)} podprocesów."
+                    )
+
+                    output_data = {
+                        "status": "success",
+                        "spawned_subworkflows": len(items),
+                    }
 
                 node_outputs[node_id] = output_data
 

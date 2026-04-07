@@ -52,6 +52,9 @@ class WorkflowExecution(Base):
     workflow_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("workflows.id", ondelete="CASCADE")
     )
+    parent_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("workflow_executions.id", ondelete="CASCADE"), nullable=True
+    )
     status: Mapped[ExecutionStatus] = mapped_column(
         Enum(ExecutionStatus), default=ExecutionStatus.PENDING
     )
@@ -68,6 +71,12 @@ class WorkflowExecution(Base):
     workflow: Mapped["Workflow"] = relationship(back_populates="executions")
     steps: Mapped[list["ExecutionStep"]] = relationship(
         back_populates="execution", cascade="all, delete-orphan"
+    )
+    parent: Mapped["WorkflowExecution"] = relationship(
+        "WorkflowExecution", remote_side=[id], back_populates="sub_executions"
+    )
+    sub_executions: Mapped[list["WorkflowExecution"]] = relationship(
+        "WorkflowExecution", backup_populates="parent", cascade="all, delete-orphan"
     )
 
 

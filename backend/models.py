@@ -76,7 +76,7 @@ class WorkflowExecution(Base):
         "WorkflowExecution", remote_side=[id], back_populates="sub_executions"
     )
     sub_executions: Mapped[list["WorkflowExecution"]] = relationship(
-        "WorkflowExecution", backup_populates="parent", cascade="all, delete-orphan"
+        "WorkflowExecution", back_populates="parent", cascade="all, delete-orphan"
     )
 
 

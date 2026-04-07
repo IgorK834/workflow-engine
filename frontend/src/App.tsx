@@ -11,15 +11,36 @@ type ViewType = 'dashboard' | 'editor' | 'processes' | 'monitoring' | 'settings'
 
 function AppContent() {
   const [currentView, setCurrentView] = useState<ViewType>('dashboard');
+  const [selectedWorkflowId, setSelectedWorkflowId] = useState<string | null>(null);
+
+  const handleNavigate = (view: ViewType) => {
+    if (view === 'editor') {
+      setSelectedWorkflowId(null);
+    }
+    setCurrentView(view);
+  };
+
+  const handleEditWorkflow = (workflowId: string) => {
+    setSelectedWorkflowId(workflowId);
+    setCurrentView('editor');
+  };
 
   const renderContent = () => {
     switch (currentView) {
       case 'dashboard':
         return <Dashboard />;
       case 'editor':
-        return <WorkflowEditor onBack={() => setCurrentView('dashboard')} />;
+        return (
+          <WorkflowEditor
+            workflowId={selectedWorkflowId}
+            onBack={() => {
+              setSelectedWorkflowId(null);
+              setCurrentView('processes');
+            }}
+          />
+        );
       case 'processes':
-        return <Processes />;
+        return <Processes onEditWorkflow={handleEditWorkflow} />;
       case 'monitoring':
         return <Monitoring />;
       case 'settings':
@@ -31,7 +52,7 @@ function AppContent() {
 
   return (
     <div className="flex h-screen w-full bg-background">
-      <Sidebar currentView={currentView} onNavigate={setCurrentView} />
+      <Sidebar currentView={currentView} onNavigate={handleNavigate} />
       {renderContent()}
     </div>
   );

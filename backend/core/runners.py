@@ -99,57 +99,114 @@ async def execute_db_insert(
     return {"status": "inserted", "table": table, "inserted_record": input_data}
 
 
-async def execute_http_request(
-    config: dict[str, Any], input_data: dict[str, Any]
-) -> dict[str, Any]:
-    """Wysyła request HTTP do zewnętrznego API z obsługą wstrzykiwania zmiennych"""
+async def execute_http_request(config: dict[str, Any], input_data: dict[str, Any]) -> dict[str, Any]:
+    """Węzeł HTTP wspierający dynamiczne formularze (Klucz-Wartość) i różne typy Body."""
     raw_url = config.get("url", "")
     method = config.get("method", "GET").upper()
-    raw_headers_str = config.get("headers", "{}")
-    raw_body_str = config.get("body", "{}")
 
     if not raw_url:
-        raise ValueError("URL jest wymagany dla tego węzła")
+        raise ValueError("Krok przerwany: Brak podanego adresu URL w konfiguracji węzła HTTP.")
 
-    # Wstrzykiwanie zmiennych
     url = inject_variables(raw_url, input_data)
-    headers_str = inject_variables(raw_headers_str, input_data)
-    body_str = inject_variables(raw_body_str, input_data)
 
-    try:
-        headers = json.loads(headers_str) if headers_str.strip() else {}
-        body = json.loads(body_str) if body_str.strip() else {}
-    except json.JSONDecodeError as e:
-        logger.error(
-            f"[HTTP REQUEST] Błąd parsowania JSON po wstrzyknięciu zmiennych. Payload: {body_str}"
-        )
-        raise ValueError(
-            f"Błąd parsowania JSON (nagłówki lub ciało) po interpolacji: {e}"
-        )
+    headers = {}
+    headers_config = config.get("headers", [])
+    if isinstance(headers_config, list):
+        for h in headers_config:
+            k = h.get("key", "").strip()
+            v = h.get("value", "")
+            if k:
+                headers[k] = inject_variables(str(v), input_data)
+    elif isinstance(headers_config, str) and headers_config.strip():
+        try:
+            headers = json.loads(inject_variables(headers_config, input_data))
+        except json.JSONDecodeError:
+            pass
+
+    params = {}
+    params_config = config.get("query_params", [])
+    if isinstance(params_config, list):
+        for p in params_config:
+            k = p.get("key", "").strip()
+            v = p.get("value", "")
+            if k:
+                params[k] = inject_variables(str(v), input_data)
+
+    body_type = config.get("body_type", "json").lower()
+    body_config = config.get("body", [])
+    
+    json_body = None
+    data_body = None
+    content_body = None
+
+    if method in ["POST", "PUT", "PATCH", "DELETE"]:
+        if body_type == "json" and isinstance(body_config, list):
+            json_body = {}
+            for b in body_config:
+                k = b.get("key", "").strip()
+                v = b.get("value", "")
+                target_type = b.get("type", "string").lower()
+                
+                if k:
+                    injected_val = inject_variables(str(v), input_data)
+                    try:
+                        if target_type == "int":
+                            json_body[k] = int(injected_val)
+                        elif target_type == "float":
+                            json_body[k] = float(injected_val)
+                        elif target_type in ["bool", "boolean"]:
+                            json_body[k] = injected_val.lower() in ['true', '1', 'yes', 't']
+                        else:
+                            json_body[k] = injected_val
+                    except ValueError:
+                        json_body[k] = injected_val
+                        
+        elif body_type == "form-data" and isinstance(body_config, list):
+            data_body = {}
+            for b in body_config:
+                k = b.get("key", "").strip()
+                v = b.get("value", "")
+                if k:
+                    data_body[k] = inject_variables(str(v), input_data)
+                    
+        elif body_type == "raw" and isinstance(body_config, str):
+            content_body = inject_variables(body_config, input_data)
+            
+        elif isinstance(body_config, str) and body_config.strip():
+             try:
+                 json_body = json.loads(inject_variables(body_config, input_data))
+             except:
+                 content_body = inject_variables(body_config, input_data)
 
     logger.info(f"[HTTP REQUEST] {method} -> {url}")
 
     try:
-        async with httpx.AsyncClient() as client:
-            if method in ["POST", "PUT", "PATCH"]:
-                response = await client.request(method, url, headers=headers, json=body)
-            else:
-                response = await client.request(method, url, headers=headers)
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.request(
+                method, 
+                url, 
+                params=params,
+                headers=headers, 
+                json=json_body,
+                data=data_body,
+                content=content_body
+            )
 
             try:
-                response_data = response.json()
+                response_body = response.json()
             except Exception:
-                response_data = response.text
+                response_body = response.text
 
             return {
                 "status_code": response.status_code,
-                "response": response_data,
-                "request_url": url,
+                "body": response_body,
+                "headers": dict(response.headers),
+                "request_url": str(response.url)
             }
+            
     except httpx.RequestError as exc:
         logger.error(f"[HTTP REQUEST] Błąd połączenia z {url}: {exc}")
-        raise ValueError(f"Błąd połączenia HTTP z zewnętrznym API: {exc}")
-
+        raise ValueError(f"Błąd sieciowy podczas komunikacji z zewnętrznym API: {exc}")
 
 async def execute_send_email(
     config: dict[str, Any], input_data: dict[str, Any], db: AsyncSession = None

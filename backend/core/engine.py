@@ -2,7 +2,7 @@ import uuid
 import logging
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 
 from .parser import DAGParser
 from .state_manager import StateManager
@@ -46,9 +46,7 @@ class ExecutionEngine:
         completed_node_ids = set()
 
         result = await self.db.execute(
-            select(ExecutionStep).where(
-                ExecutionStep.execution_id == self.execution_id
-            )
+            select(ExecutionStep).where(ExecutionStep.execution_id == self.execution_id)
         )
 
         existing_steps = result.scalars().all()
@@ -102,11 +100,15 @@ class ExecutionEngine:
                             continue
 
                     payload = source_output.get("payload", source_output)
-                    filtered_payload = {k: v for k, v in payload.items() if k not in ["selected_handle", "status"]}
+                    filtered_payload = {
+                        k: v
+                        for k, v in payload.items()
+                        if k not in ["selected_handle", "status"]
+                    }
 
                     input_data.update(filtered_payload)
                     valid_edges_count += 1
-                
+
                 if valid_edges_count == 0:
                     logger.info(f"[{self.execution_id}] Pomijam węzeł {node_id}")
                     continue
@@ -162,6 +164,50 @@ class ExecutionEngine:
 
             except Exception as e:
                 logger.error(f"[{self.execution_id}] Błąd węzła {node_id}: {e}")
+
+                MAX_RETRIES = 3
+                BASE_DELAY = 5.0
+                RETRY_MULTIPLIER = 2.0
+
+                failed_attempts = sum(
+                    1
+                    for s in existing_steps
+                    if s.node_id == node_id and s.status == ExecutionStatus.FAILED
+                )
+
+                current_attempt = failed_attempts + 1
+
+                if current_attempt <= MAX_RETRIES:
+                    delay_seconds = BASE_DELAY * (
+                        RETRY_MULTIPLIER ** (current_attempt - 1)
+                    )
+                    resume_at_dt = datetime.now(timezone.utc) + timedelta(
+                        seconds=delay_seconds
+                    )
+
+                    logger.warning(
+                        f"[{self.execution_id}] Próba {current_attempt}/{MAX_RETRIES} dla węzła {node_id}. "
+                        f"Usypiam. Ponowienie za {delay_seconds}s."
+                    )
+
+                    await self.state_manager.update_step_status(
+                        step_id=step.id,
+                        status=ExecutionStatus.FAILED,
+                        error_message=str(e),
+                    )
+
+                    await self.db.execute(
+                        update(WorkflowExecution)
+                        .where(WorkflowExecution.id == self.execution_id)
+                        .values(status=ExecutionStatus.PAUSED, resume_at=resume_at_dt)
+                    )
+                    await self.db.commit()
+
+                    return
+
+                logger.error(
+                    f"[{self.execution_id}] Węzeł {node_id} uległ ostatecznej awarii po {MAX_RETRIES} próbach."
+                )
 
                 await self.state_manager.update_step_status(
                     step_id=step.id, status=ExecutionStatus.FAILED, error_message=str(e)

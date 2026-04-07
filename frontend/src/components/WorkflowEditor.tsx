@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect } from 'react';
 import {
   ReactFlow,
   addEdge,
@@ -49,6 +49,7 @@ const getId = () => `node_${id++}`;
 
 interface WorkflowEditorProps {
   onBack: () => void;
+  workflowId?: string | null;
 }
 
 const nodeBlocks = [
@@ -84,7 +85,7 @@ const nodeBlocks = [
   },
 ];
 
-export default function WorkflowEditor({ onBack }: WorkflowEditorProps) {
+export default function WorkflowEditor({ onBack, workflowId }: WorkflowEditorProps) {
   const { workflows } = useWorkflows();
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
@@ -92,6 +93,8 @@ export default function WorkflowEditor({ onBack }: WorkflowEditorProps) {
   
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [savedWorkflowId, setSavedWorkflowId] = useState<string | null>(null)
+  const [loadedWorkflowName, setLoadedWorkflowName] = useState<string>('Nowy Workflow');
+  const [isReadOnly, setIsReadOnly] = useState<boolean>(false);
 
   const selectedNode = useMemo(
     () => nodes.find((n) => n.id === selectedNodeId) || null,
@@ -99,8 +102,11 @@ export default function WorkflowEditor({ onBack }: WorkflowEditorProps) {
   );
 
   const onConnect = useCallback(
-    (params: Connection | Edge) => setEdges((eds) => addEdge({ ...params, animated: true }, eds)),
-    [setEdges]
+    (params: Connection | Edge) => {
+      if (isReadOnly) return;
+      setEdges((eds) => addEdge({ ...params, animated: true }, eds));
+    },
+    [setEdges, isReadOnly]
   );
 
   const isValidConnection = useCallback(
@@ -126,6 +132,7 @@ export default function WorkflowEditor({ onBack }: WorkflowEditorProps) {
 
   const onDrop = useCallback(
     (event: React.DragEvent) => {
+      if (isReadOnly) return;
       event.preventDefault();
       const type = event.dataTransfer.getData('application/reactflow/type');
       const subtype = event.dataTransfer.getData('application/reactflow/subtype');
@@ -149,7 +156,7 @@ export default function WorkflowEditor({ onBack }: WorkflowEditorProps) {
       setNodes((nds) => nds.concat(newNode));
       setSelectedNodeId(newNode.id);
     },
-    [reactFlowInstance, setNodes]
+    [reactFlowInstance, setNodes, isReadOnly]
   );
 
   const onDragStart = (event: React.DragEvent, nodeType: string, subtype: string, label: string, description: string) => {
@@ -162,6 +169,7 @@ export default function WorkflowEditor({ onBack }: WorkflowEditorProps) {
 
   // Funkcja aktualizująca config wybranego węzła
   const updateNodeConfig = (key: string, value: any) => {
+    if (isReadOnly) return;
     if (!selectedNodeId) return;
     setNodes((nds) =>
       nds.map((n) => {
@@ -183,6 +191,10 @@ export default function WorkflowEditor({ onBack }: WorkflowEditorProps) {
   };
 
   const handleSave = async () => {
+    if (isReadOnly) {
+      alert('Ten proces jest uruchomiony — zatrzymaj go, aby odblokować edycję.');
+      return;
+    }
     // Walidacja główna
     const hasTrigger = nodes.some(n => n.type === 'trigger');
     if (!hasTrigger) {
@@ -228,6 +240,10 @@ export default function WorkflowEditor({ onBack }: WorkflowEditorProps) {
   };
 
   const handleTest = async () => {
+    if (isReadOnly) {
+      alert('Ten proces jest uruchomiony — zatrzymaj go, aby odblokować edycję.');
+      return;
+    }
     if (!savedWorkflowId) {
       alert('Najpierw zapisz proces, aby móc go przetestować!');
       return;
@@ -243,6 +259,10 @@ export default function WorkflowEditor({ onBack }: WorkflowEditorProps) {
   };
 
   const handlePublish = async () => {
+    if (isReadOnly) {
+      alert('Ten proces jest uruchomiony — zatrzymaj go, aby odblokować edycję.');
+      return;
+    }
     if (!savedWorkflowId) {
       alert('Najpierw zapisz proces, aby móc go opublikować!');
       return;
@@ -424,14 +444,17 @@ export default function WorkflowEditor({ onBack }: WorkflowEditorProps) {
         const paramsList = config.query_params || [];
         
         const addListItem = (keyName: string, list: any[]) => {
+          if (isReadOnly) return;
           updateNodeConfig(keyName, [...list, { id: Date.now(), key: '', value: '' }]);
         };
         const updateListItem = (keyName: string, list: any[], idx: number, field: string, val: string) => {
+          if (isReadOnly) return;
           const newList = [...list];
           newList[idx] = { ...newList[idx], [field]: val };
           updateNodeConfig(keyName, newList);
         };
         const removeListItem = (keyName: string, list: any[], idx: number) => {
+          if (isReadOnly) return;
           updateNodeConfig(keyName, list.filter((_: any, i: number) => i !== idx));
         };
 
@@ -439,13 +462,39 @@ export default function WorkflowEditor({ onBack }: WorkflowEditorProps) {
           <div className="space-y-2 mt-4 border-t border-border pt-4">
             <div className="flex justify-between items-center">
               <label className="text-sm font-medium text-foreground">{title}</label>
-              <button onClick={() => addListItem(configKey, list)} className="text-xs text-primary hover:underline">+ Dodaj</button>
+              <button
+                onClick={() => addListItem(configKey, list)}
+                className={`text-xs ${isReadOnly ? 'text-muted-foreground' : 'text-primary hover:underline'}`}
+                disabled={isReadOnly}
+              >
+                + Dodaj
+              </button>
             </div>
             {list.map((item: any, idx: number) => (
               <div key={item.id || idx} className="flex gap-2 items-center">
-                <input type="text" placeholder="Klucz" className="w-1/3 text-xs p-1.5 border rounded" value={item.key} onChange={(e) => updateListItem(configKey, list, idx, 'key', e.target.value)} />
-                <input type="text" placeholder="Wartość" className="w-full text-xs p-1.5 border rounded" value={item.value} onChange={(e) => updateListItem(configKey, list, idx, 'value', e.target.value)} />
-                <button onClick={() => removeListItem(configKey, list, idx)} className="text-red-500 shrink-0"><X className="w-3 h-3"/></button>
+                <input
+                  type="text"
+                  placeholder="Klucz"
+                  className="w-1/3 text-xs p-1.5 border rounded disabled:opacity-60 disabled:cursor-not-allowed"
+                  value={item.key}
+                  onChange={(e) => updateListItem(configKey, list, idx, 'key', e.target.value)}
+                  disabled={isReadOnly}
+                />
+                <input
+                  type="text"
+                  placeholder="Wartość"
+                  className="w-full text-xs p-1.5 border rounded disabled:opacity-60 disabled:cursor-not-allowed"
+                  value={item.value}
+                  onChange={(e) => updateListItem(configKey, list, idx, 'value', e.target.value)}
+                  disabled={isReadOnly}
+                />
+                <button
+                  onClick={() => removeListItem(configKey, list, idx)}
+                  className={`shrink-0 ${isReadOnly ? 'text-muted-foreground' : 'text-red-500'}`}
+                  disabled={isReadOnly}
+                >
+                  <X className="w-3 h-3"/>
+                </button>
               </div>
             ))}
           </div>
@@ -803,6 +852,66 @@ export default function WorkflowEditor({ onBack }: WorkflowEditorProps) {
     }
   };
 
+  useEffect(() => {
+    if (!workflowId) {
+      setLoadedWorkflowName('Nowy Workflow');
+      setSavedWorkflowId(null);
+      setIsReadOnly(false);
+      setNodes([]);
+      setEdges([]);
+      setSelectedNodeId(null);
+      return;
+    }
+
+    const wf = workflows.find((w) => w.id === workflowId) || null;
+    if (!wf) {
+      setLoadedWorkflowName('Nie znaleziono procesu');
+      setSavedWorkflowId(workflowId);
+      setIsReadOnly(true);
+      setNodes([]);
+      setEdges([]);
+      setSelectedNodeId(null);
+      return;
+    }
+
+    setLoadedWorkflowName(wf.name);
+    setSavedWorkflowId(wf.id);
+    setIsReadOnly(Boolean(wf.is_active));
+
+    const loadedNodes: Node[] = (wf.graph_json?.nodes ?? []).map((n) => ({
+      id: n.id,
+      type: n.type,
+      position: n.position,
+      data: {
+        ...n.data,
+        config: (n.data?.config ?? {}) as any,
+        description: (n.data as any)?.description ?? (n.data as any)?.label ?? 'Węzeł',
+      },
+    }));
+    const loadedEdges: Edge[] = (wf.graph_json?.edges ?? []).map((e) => ({
+      id: e.id,
+      source: e.source,
+      target: e.target,
+      sourceHandle: e.sourceHandle ?? null,
+      targetHandle: e.targetHandle ?? null,
+      animated: true,
+    }));
+
+    setNodes(loadedNodes);
+    setEdges(loadedEdges);
+    setSelectedNodeId(null);
+
+    const maxNodeIndex = loadedNodes
+      .map((n) => {
+        const m = /^node_(\d+)$/.exec(n.id);
+        return m ? Number(m[1]) : -1;
+      })
+      .reduce((acc, v) => Math.max(acc, v), -1);
+    if (maxNodeIndex >= 0) {
+      id = maxNodeIndex + 1;
+    }
+  }, [workflowId, workflows, setEdges, setNodes]);
+
   return (
     <div className="flex-1 flex flex-col bg-muted/30 h-full overflow-hidden">
       <header className="bg-white border-b border-border px-6 py-3 flex items-center justify-between shrink-0">
@@ -815,68 +924,90 @@ export default function WorkflowEditor({ onBack }: WorkflowEditorProps) {
             Powrót
           </button>
           <div className="h-6 w-px bg-border" />
-          <h2 className="text-lg font-medium text-foreground">Nowy Workflow</h2>
+          <h2 className="text-lg font-medium text-foreground">{loadedWorkflowName}</h2>
         </div>
         <div className="flex items-center gap-3">
-          <button onClick={handleSave} className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-muted-foreground bg-white border border-border rounded-lg hover:bg-muted transition-colors">
+          <button
+            onClick={handleSave}
+            disabled={isReadOnly}
+            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-muted-foreground bg-white border border-border rounded-lg hover:bg-muted transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+          >
             <Save className="w-4 h-4" />
             Zapisz
           </button>
-          <button onClick={handleTest} className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-muted-foreground bg-white border border-border rounded-lg hover:bg-muted transition-colors">
+          <button
+            onClick={handleTest}
+            disabled={isReadOnly}
+            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-muted-foreground bg-white border border-border rounded-lg hover:bg-muted transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+          >
             <Play className="w-4 h-4" />
             Testuj
           </button>
-          <button onClick={handlePublish} className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-primary-foreground bg-primary rounded-lg hover:bg-primary/90 transition-colors">
+          <button
+            onClick={handlePublish}
+            disabled={isReadOnly}
+            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-primary-foreground bg-primary rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+          >
             <Upload className="w-4 h-4" />
             Publikuj
           </button>
         </div>
       </header>
 
+      {isReadOnly && (
+        <div className="px-6 py-3 bg-amber-50 border-b border-amber-200 text-amber-900">
+          <p className="text-sm font-semibold">
+            Proces jest obecnie URUCHOMIONY. Przejdź do zakładki Moje Procesy i zatrzymaj go (Stop), aby odblokować możliwość edycji grafu.
+          </p>
+        </div>
+      )}
+
       <div className="flex-1 flex overflow-hidden relative">
-        <aside className="w-72 bg-white border-r border-border overflow-y-auto shrink-0 h-full relative z-10">
-          <div className="p-4">
-            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-4">
-              Przeciągnij na płótno
-            </p>
-            {nodeBlocks.map((block) => (
-              <div key={block.category} className="mb-6">
-                <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
-                  {block.category}
-                </h3>
-                <div className="space-y-2">
-                  {block.items.map((item) => {
-                    const Icon = item.icon;
-                    const bgColors = {
-                      trigger: 'bg-trigger-light border-trigger/30 hover:border-trigger/50',
-                      logic: 'bg-logic-light border-logic/30 hover:border-logic/50',
-                      action: 'bg-action-light border-action/30 hover:border-action/50',
-                    };
-                    const iconColors = {
-                      trigger: 'text-trigger',
-                      logic: 'text-logic',
-                      action: 'text-action',
-                    };
-                    return (
-                      <div
-                        key={item.label}
-                        className={`p-3 border rounded-lg cursor-grab transition-colors ${bgColors[item.type as keyof typeof bgColors]}`}
-                        onDragStart={(e) => onDragStart(e, item.type, item.subtype, item.label, item.description)}
-                        draggable
-                      >
-                        <div className="flex items-center gap-2">
-                          <Icon className={`w-4 h-4 ${iconColors[item.type as keyof typeof iconColors]}`} />
-                          <span className="text-sm font-medium text-foreground">{item.label}</span>
+        {!isReadOnly && (
+          <aside className="w-72 bg-white border-r border-border overflow-y-auto shrink-0 h-full relative z-10">
+            <div className="p-4">
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-4">
+                Przeciągnij na płótno
+              </p>
+              {nodeBlocks.map((block) => (
+                <div key={block.category} className="mb-6">
+                  <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
+                    {block.category}
+                  </h3>
+                  <div className="space-y-2">
+                    {block.items.map((item) => {
+                      const Icon = item.icon;
+                      const bgColors = {
+                        trigger: 'bg-trigger-light border-trigger/30 hover:border-trigger/50',
+                        logic: 'bg-logic-light border-logic/30 hover:border-logic/50',
+                        action: 'bg-action-light border-action/30 hover:border-action/50',
+                      };
+                      const iconColors = {
+                        trigger: 'text-trigger',
+                        logic: 'text-logic',
+                        action: 'text-action',
+                      };
+                      return (
+                        <div
+                          key={item.label}
+                          className={`p-3 border rounded-lg cursor-grab transition-colors ${bgColors[item.type as keyof typeof bgColors]}`}
+                          onDragStart={(e) => onDragStart(e, item.type, item.subtype, item.label, item.description)}
+                          draggable
+                        >
+                          <div className="flex items-center gap-2">
+                            <Icon className={`w-4 h-4 ${iconColors[item.type as keyof typeof iconColors]}`} />
+                            <span className="text-sm font-medium text-foreground">{item.label}</span>
+                          </div>
+                          <p className="text-xs text-muted-foreground mt-1 ml-6">{item.description}</p>
                         </div>
-                        <p className="text-xs text-muted-foreground mt-1 ml-6">{item.description}</p>
-                      </div>
-                    );
-                  })}
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
-            ))}
-          </div>
-        </aside>
+              ))}
+            </div>
+          </aside>
+        )}
 
         <div className="flex-1 relative h-full">
           <ReactFlow
@@ -891,6 +1022,8 @@ export default function WorkflowEditor({ onBack }: WorkflowEditorProps) {
             onDragOver={onDragOver}
             nodeTypes={nodeTypes}
             isValidConnection={isValidConnection}
+            nodesDraggable={!isReadOnly}
+            nodesConnectable={!isReadOnly}
             fitView
             defaultEdgeOptions={{
               style: { strokeWidth: 2, stroke: '#94a3b8' },
@@ -921,7 +1054,9 @@ export default function WorkflowEditor({ onBack }: WorkflowEditorProps) {
               </div>
 
               <div className="p-4 flex-1 overflow-y-auto">
-                {renderConfigForm()}
+                <div className={isReadOnly ? 'opacity-60 pointer-events-none' : ''}>
+                  {renderConfigForm()}
+                </div>
               </div>
             </aside>
           )}

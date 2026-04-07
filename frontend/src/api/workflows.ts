@@ -44,3 +44,44 @@ export async function deleteWorkflow(workflowId: string): Promise<any> {
 export async function resumeWorkflow(workflowId: string): Promise<any> {
   return apiRequest<any>(`/workflows/${workflowId}/resume`, {method: 'POST'});
 }
+
+export async function toggleWorkflow(workflowId: string): Promise<Workflow> {
+  return apiRequest<Workflow>(`/workflows/${workflowId}/toggle`, { method: 'PATCH' });
+}
+
+export interface WorkflowStatsSeriesItem {
+  day: string | null;
+  total: number;
+  completed: number;
+  failed: number;
+  paused: number;
+  running: number;
+}
+
+export interface WorkflowStatsResponse {
+  days: number;
+  series: WorkflowStatsSeriesItem[];
+}
+
+export async function getWorkflowStats(days: number = 7): Promise<WorkflowStatsResponse> {
+  return apiRequest<WorkflowStatsResponse>(`/workflows/stats?days=${encodeURIComponent(String(days))}`);
+}
+
+export interface WorkflowLogItem {
+  id: string;
+  execution_id: string;
+  node_id: string;
+  status: string;
+  started_at: string | null;
+  finished_at: string | null;
+  error_message: string | null;
+}
+
+export interface WorkflowLogsResponse {
+  limit: number;
+  items: WorkflowLogItem[];
+}
+
+export async function getWorkflowLogs(limit: number = 50): Promise<WorkflowLogsResponse> {
+  return apiRequest<WorkflowLogsResponse>(`/workflows/logs?limit=${encodeURIComponent(String(limit))}`);
+}

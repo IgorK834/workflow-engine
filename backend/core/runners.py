@@ -457,6 +457,16 @@ async def execute_jira_create_ticket(config: dict[str, Any], input_data: dict[st
             "url": f"https://{domain}/atlassian.net/browse/{data['key']}",
             "status": "created"
         }
+    
+async def execute_manual_approval(config: dict[str, Any], input_data: dict[str, Any]):
+    """Węzeł wstrzymujący proces i oczekujący w tym czasie na ręczną akceptację uytkownika"""
+    logger.info(f"[MANUAL APPROVAL] Proces wstrzymany. Oczkeuje na kliknięcie 'Akceptuj' w panelu Moje Procesy")
+
+    return {
+        "__pause__": True,
+        "manual_approval": True,
+        "original_input": input_data,
+    }
 
 
 RUNNERS_REGISTRY = {
@@ -471,6 +481,7 @@ RUNNERS_REGISTRY = {
     "switch": execute_switch,
     "for_each": execute_for_each,
     "jira_create_ticket": execute_jira_create_ticket,
+    "manual_approval": execute_manual_approval,
 }
 
 

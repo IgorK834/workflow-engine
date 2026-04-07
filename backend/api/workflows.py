@@ -1,7 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
+from sqlalchemy import update
 import uuid
+import asyncio
 
 from ..core.engine import ExecutionEngine
 from ..database import get_db
@@ -11,7 +13,7 @@ from ..core.state_manager import StateManager
 from ..core.scheduler import sync_workflows_to_scheduler
 from ..core.security import decrypt_value
 from ..core.runners import JiraClient
-from ..models import SystemSetting
+from ..models import SystemSetting, ExecutionStatus, ExecutionStep
 
 router = APIRouter(prefix="/workflows", tags=["workflows"])
 
@@ -161,3 +163,62 @@ async def fetch_jira_projects(db: AsyncSession = Depends(get_db)):
         return [{"id": p["id"], "key": p["key"], "name": p["name"]} for p in projects]
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+import asyncio
+from sqlalchemy import update
+from ..core.state_manager import StateManager
+from ..core.engine import ExecutionEngine
+
+@router.post("/{workflow_id}/resume")
+async def resume_workflow(workflow_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    """Wznawia najnowszą wstrzymaną akcję dla danego procesu."""
+    
+    result = await db.execute(
+        select(WorkflowExecution)
+        .where(
+            WorkflowExecution.workflow_id == workflow_id,
+            WorkflowExecution.status == ExecutionStatus.PAUSED
+        )
+        .order_by(WorkflowExecution.created_at.desc())
+    )
+    execution = result.scalars().first()
+    
+    if not execution:
+        raise HTTPException(status_code=404, detail="Ten proces nie ma aktualnie żadnych wstrzymanych akcji.")
+
+    step_result = await db.execute(
+        select(ExecutionStep).where(
+            ExecutionStep.execution_id == execution.id,
+            ExecutionStep.status == ExecutionStatus.PAUSED
+        )
+    )
+    step = step_result.scalars().first()
+    
+    if not step:
+        raise HTTPException(status_code=404, detail="Brak zatrzymanego kroku.")
+
+    output_data = step.output_data or {}
+    original_input = output_data.get("original_input", {})
+    
+    new_output_data = {
+        "status": "success",
+        "decision": "approved",
+        "payload": original_input,
+    }
+    
+    state_manager = StateManager(db)
+    await state_manager.update_step_status(
+        step_id=step.id,
+        status=ExecutionStatus.COMPLETED,
+        output_data=new_output_data
+    )
+
+    execution.status = ExecutionStatus.RUNNING
+    execution.resume_at = None
+    await db.commit()
+
+    workflow = await db.get(Workflow, workflow_id)
+    engine = ExecutionEngine(db, execution.id)
+    asyncio.create_task(engine.run(workflow.graph_json))
+
+    return {"status": "resumed", "message": "Proces pomyślnie wznowiony!"}

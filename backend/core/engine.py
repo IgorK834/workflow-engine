@@ -135,7 +135,7 @@ class ExecutionEngine:
 
                 if isinstance(output_data, dict) and output_data.get("__pause__"):
                     resume_at_str = output_data.get("resume_at")
-                    resume_at_dt = datetime.fromisoformat(resume_at_str)
+                    resume_at_dt = datetime.fromisoformat(resume_at_str) if resume_at_str else None
 
                     await self.state_manager.update_step_status(
                         step_id=step.id,
@@ -150,9 +150,10 @@ class ExecutionEngine:
                     )
                     await self.db.commit()
 
-                    logger.info(
-                        f"[{self.execution_id}] Proces zatrzymany. Zwolniono zasoby. Wznowienie po: {resume_at_dt}"
-                    )
+                    if resume_at_dt:
+                        logger.info(f"[{self.execution_id}] Proces zatrzymany. Zwolniono zasoby. Wznowienie po: {resume_at_dt}")
+                    else:
+                        logger.info(f"[{self.execution_id}] Proces zatrzymany. Oczekuje na ręczną akceptację.")
 
                     return
 

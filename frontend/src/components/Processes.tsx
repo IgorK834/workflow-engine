@@ -1,8 +1,12 @@
-import { Trash2, CheckCircle } from 'lucide-react';
+import { Trash2, CheckCircle, Pause, Play } from 'lucide-react';
 import { useWorkflows } from '../hooks/useWorkflows';
-import { deleteWorkflow, resumeWorkflow } from '../api/workflows';
+import { deleteWorkflow, resumeWorkflow, toggleWorkflow } from '../api/workflows';
 
-export default function Processes() {
+interface ProcessesProps {
+  onEditWorkflow: (workflowId: string) => void;
+}
+
+export default function Processes({ onEditWorkflow }: ProcessesProps) {
   const { workflows, isLoading, error, reload } = useWorkflows();
 
   const handleDelete = async (id: string) => {
@@ -14,6 +18,16 @@ export default function Processes() {
         console.error('Błąd usuwania:', err);
         alert('Wystąpił błąd podczas usuwania procesu!');
       }
+    }
+  };
+
+  const handleToggleActive = async (id: string) => {
+    try {
+      await toggleWorkflow(id);
+      await reload();
+    } catch (err) {
+      console.error('Błąd zmiany statusu procesu:', err);
+      alert('Nie udało się zmienić statusu procesu (Stop/Wznów).');
     }
   };
 
@@ -63,7 +77,15 @@ export default function Processes() {
               
               {!isLoading && !error && workflows.map((wf) => (
                   <tr key={wf.id} className="hover:bg-muted/30 transition-colors group">
-                    <td className="px-6 py-4 text-sm font-medium text-foreground">{wf.name}</td>
+                    <td className="px-6 py-4 text-sm font-medium text-foreground">
+                      <button
+                        onClick={() => onEditWorkflow(wf.id)}
+                        className="text-left hover:underline underline-offset-4 decoration-primary/40 hover:decoration-primary transition-colors"
+                        title="Otwórz w edytorze"
+                      >
+                        {wf.name}
+                      </button>
+                    </td>
                     <td className="px-6 py-4 text-sm text-muted-foreground">{wf.description || '-'}</td>
                     <td className="px-6 py-4 text-sm text-muted-foreground">
                       {wf.is_active ? (
@@ -76,6 +98,25 @@ export default function Processes() {
                       {new Date(wf.updated_at).toLocaleString('pl-PL')}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+
+                      {/* STOP / WZNÓW (toggle is_active) */}
+                      {wf.is_active ? (
+                        <button
+                          onClick={() => handleToggleActive(wf.id)}
+                          className="text-amber-700 hover:text-amber-800 hover:bg-amber-50 p-2 rounded-md transition-colors opacity-0 group-hover:opacity-100 mr-2"
+                          title="Zatrzymaj proces (Stop)"
+                        >
+                          <Pause className="w-5 h-5" />
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => handleToggleActive(wf.id)}
+                          className="text-primary hover:text-primary/90 hover:bg-primary/10 p-2 rounded-md transition-colors opacity-0 group-hover:opacity-100 mr-2"
+                          title="Wznów proces (Resume)"
+                        >
+                          <Play className="w-5 h-5" />
+                        </button>
+                      )}
                       
                       {/* NOWY PRZYCISK WZNAWIANIA */}
                       <button

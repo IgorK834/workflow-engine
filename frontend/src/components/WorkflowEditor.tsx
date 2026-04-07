@@ -27,12 +27,14 @@ import {
   Globe,
   Mail,
   Clock,
-  FileJson
+  FileJson,
+  Copy
 } from 'lucide-react';
 import TriggerNode from '../nodes/TriggerNode';
 import LogicNode from '../nodes/LogicNode';
 import ActionNode from '../nodes/ActionNode';
 import { createWorkflow, executeWorkflowTest, publishWorkflow } from '../api/workflows';
+import { useWorkflows } from '../hooks/useWorkflows';
 
 const nodeTypes = {
   trigger: TriggerNode,
@@ -63,6 +65,7 @@ const nodeBlocks = [
       { type: 'logic', subtype: 'delay', label: 'Opóźnienie czasowe', icon: Clock, description: 'Pause & Resume (Baza)' },
       { type: 'logic', subtype: 'json_transform', label: 'Filtruj Dane', icon: FileJson, description: 'Wybiera tylko wybrane pola' },
       { type: 'logic', subtype: 'switch', label: 'Switch (Wiele sciezek)', icon: GitBranch, description: 'WIelokrotne rozgałęzienie'},
+      { type: 'logic', subtype: 'for_each', label: 'Pętla (For Each)', icon: GitBranch, description: 'Uruchamia podprocesy' },
     ],
   },
   {
@@ -72,11 +75,13 @@ const nodeBlocks = [
       { type: 'action', subtype: 'send_email', label: 'Wyślij Email', icon: Mail, description: 'Wiadomość z systemu' },
       { type: 'action', subtype: 'http_request', label: 'Zewnętrzny Webhook API', icon: Globe, description: 'Request HTTP (GET/POST)' },
       { type: 'action', subtype: 'db_insert', label: 'Zapisz do Bazy', icon: Database, description: 'INSERT/UPDATE' },
+      { type: 'action', subtype: 'data_mapper', label: 'Mapowanie Danych', icon: FileJson, description: 'Transformacja JSON' },
     ],
   },
 ];
 
 export default function WorkflowEditor({ onBack }: WorkflowEditorProps) {
+  const { workflows } = useWorkflows();
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const [reactFlowInstance, setReactFlowInstance] = useState<ReactFlowInstance | null>(null);
@@ -256,18 +261,28 @@ export default function WorkflowEditor({ onBack }: WorkflowEditorProps) {
 
     switch (subtype) {
       case 'webhook':
+        const webhookUrl = `http://localhost:8000/api/v1/workflows/${savedWorkflowId || '{ID_PROCESU}'}/trigger`;
         return (
           <div className="space-y-4">
             <div className="p-4 bg-primary/5 rounded-lg border border-primary/20">
               <h4 className="text-sm font-semibold text-foreground mb-2">Twój adres Webhook</h4>
-              <div className="bg-white p-3 border border-border rounded-md text-xs font-mono text-muted-foreground break-all mb-3 shadow-sm">
-                [POST] /api/v1/workflows/<span className="text-primary font-bold">{"{ID_PROCESU}"}</span>/trigger
+              <div className="flex items-center gap-2 mb-3">
+                <div className="bg-white p-2 flex-1 border border-border rounded-md text-[10px] font-mono text-muted-foreground overflow-x-auto shadow-sm whitespace-nowrap">
+                  [POST] {webhookUrl}
+                </div>
+                <button 
+                  onClick={() => {
+                    navigator.clipboard.writeText(webhookUrl);
+                    alert("Skopiowano do schowka!");
+                  }}
+                  className="p-2 bg-white border border-border rounded-md hover:bg-muted transition-colors text-foreground shadow-sm"
+                  title="Kopiuj URL"
+                >
+                  <Copy className="w-4 h-4" />
+                </button>
               </div>
               <p className="text-xs text-muted-foreground leading-relaxed mb-2">
-                Zapisz swój proces, a następnie skopiuj jego ID z Dashboardu i wstaw w miejsce zaznaczone na niebiesko.
-              </p>
-              <p className="text-xs text-muted-foreground leading-relaxed">
-                Aby uruchomić proces, system zewnętrzny musi wysłać żądanie HTTP na powyższy adres.
+                Zapisz proces, a następnie użyj powyższego adresu w systemie zewnętrznym.
               </p>
             </div>
           </div>
@@ -391,7 +406,6 @@ export default function WorkflowEditor({ onBack }: WorkflowEditorProps) {
                 onChange={(e) => updateNodeConfig('body', e.target.value)}
               />
             </div>
-            
             <div className="p-3 mt-4 bg-muted/50 rounded-lg border border-border">
               <p className="text-xs text-muted-foreground leading-relaxed text-center">
                 System użyje globalnych ustawień SMTP z zakładki <span className="font-semibold text-foreground">Settings</span> do wysłania tej wiadomości.
@@ -399,66 +413,73 @@ export default function WorkflowEditor({ onBack }: WorkflowEditorProps) {
             </div>
           </div>
         );
-
+        
       // Formularz zewnętrznego zapytania HTTP
-      case 'http_request':
+      case 'http_request': {
+        const headersList = config.headers || [];
+        const paramsList = config.query_params || [];
+        
+        const addListItem = (keyName: string, list: any[]) => {
+          updateNodeConfig(keyName, [...list, { id: Date.now(), key: '', value: '' }]);
+        };
+        const updateListItem = (keyName: string, list: any[], idx: number, field: string, val: string) => {
+          const newList = [...list];
+          newList[idx] = { ...newList[idx], [field]: val };
+          updateNodeConfig(keyName, newList);
+        };
+        const removeListItem = (keyName: string, list: any[], idx: number) => {
+          updateNodeConfig(keyName, list.filter((_: any, i: number) => i !== idx));
+        };
+
+        const renderDynamicList = (title: string, configKey: string, list: any[]) => (
+          <div className="space-y-2 mt-4 border-t border-border pt-4">
+            <div className="flex justify-between items-center">
+              <label className="text-sm font-medium text-foreground">{title}</label>
+              <button onClick={() => addListItem(configKey, list)} className="text-xs text-primary hover:underline">+ Dodaj</button>
+            </div>
+            {list.map((item: any, idx: number) => (
+              <div key={item.id || idx} className="flex gap-2 items-center">
+                <input type="text" placeholder="Klucz" className="w-1/3 text-xs p-1.5 border rounded" value={item.key} onChange={(e) => updateListItem(configKey, list, idx, 'key', e.target.value)} />
+                <input type="text" placeholder="Wartość" className="w-full text-xs p-1.5 border rounded" value={item.value} onChange={(e) => updateListItem(configKey, list, idx, 'value', e.target.value)} />
+                <button onClick={() => removeListItem(configKey, list, idx)} className="text-red-500"><X className="w-3 h-3"/></button>
+              </div>
+            ))}
+          </div>
+        );
+
         return (
           <div className="space-y-4">
             <div className="space-y-2">
-              <label className="text-sm font-medium text-foreground">Metoda i Adres URL zewnętrznego API</label>
+              <label className="text-sm font-medium text-foreground">Metoda i Adres URL</label>
               <div className="flex gap-2">
-                <select
-                  className="w-1/3 text-sm border-border rounded-md shadow-sm border p-2.5 focus:outline-none focus:ring-2 focus:ring-primary/50 bg-white"
-                  value={config.method || 'GET'}
-                  onChange={(e) => updateNodeConfig('method', e.target.value)}
-                >
-                  <option value="GET">GET</option>
-                  <option value="POST">POST</option>
-                  <option value="PUT">PUT</option>
-                  <option value="PATCH">PATCH</option>
-                  <option value="DELETE">DELETE</option>
+                <select className="w-1/3 text-sm border-border rounded-md border p-2 focus:outline-none bg-white" value={config.method || 'GET'} onChange={(e) => updateNodeConfig('method', e.target.value)}>
+                  <option value="GET">GET</option><option value="POST">POST</option><option value="PUT">PUT</option><option value="DELETE">DELETE</option>
                 </select>
-                <input
-                  type="text"
-                  placeholder="https://api.system.pl/v1/users/{{ id }}"
-                  className="w-2/3 text-sm font-mono border-border rounded-md shadow-sm p-2.5 border focus:outline-none focus:ring-2 focus:ring-primary/50"
-                  value={config.url || ''}
-                  onChange={(e) => updateNodeConfig('url', e.target.value)}
-                />
+                <input type="text" placeholder="https://api.com/v1/..." className="w-2/3 text-sm border-border rounded-md border p-2" value={config.url || ''} onChange={(e) => updateNodeConfig('url', e.target.value)} />
               </div>
             </div>
-            
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-foreground">Nagłówki (JSON) - np. autoryzacja</label>
-              <textarea
-                placeholder='{"Authorization": "Bearer {{ token }}"}'
-                rows={2}
-                className="w-full font-mono text-xs border-border rounded-md shadow-sm p-2.5 border focus:outline-none focus:ring-2 focus:ring-primary/50"
-                value={config.headers || ''}
-                onChange={(e) => updateNodeConfig('headers', e.target.value)}
-              />
-            </div>
+
+            {renderDynamicList("Parametry URL (Query)", "query_params", paramsList)}
+            {renderDynamicList("Nagłówki (Headers)", "headers", headersList)}
 
             {['POST', 'PUT', 'PATCH'].includes(config.method || 'GET') && (
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-foreground">Ciało zapytania (JSON)</label>
-                <textarea
-                  placeholder='{"email": "{{ user_email }}"}'
-                  rows={3}
-                  className="w-full font-mono text-xs border-border rounded-md shadow-sm p-2.5 border focus:outline-none focus:ring-2 focus:ring-primary/50"
-                  value={config.body || ''}
-                  onChange={(e) => updateNodeConfig('body', e.target.value)}
-                />
+              <div className="space-y-2 mt-4 border-t border-border pt-4">
+                <label className="text-sm font-medium text-foreground">Typ Payloadu (Body)</label>
+                <select className="w-full text-sm border-border rounded-md border p-2 bg-white mb-2" value={config.body_type || 'raw'} onChange={(e) => updateNodeConfig('body_type', e.target.value)}>
+                  <option value="raw">Raw (np. czysty JSON wklejony z palca)</option>
+                  <option value="json">Formularz JSON (Klucz-Wartość)</option>
+                </select>
+                
+                {(!config.body_type || config.body_type === 'raw') ? (
+                  <textarea placeholder='{"key": "{{variable}}"}' rows={4} className="w-full font-mono text-xs border rounded-md p-2" value={typeof config.body === 'string' ? config.body : ''} onChange={(e) => updateNodeConfig('body', e.target.value)} />
+                ) : (
+                  renderDynamicList("Pola Body", "body", Array.isArray(config.body) ? config.body : [])
+                )}
               </div>
             )}
-
-            <div className="p-3 mt-4 bg-blue-50 text-blue-800 rounded-lg border border-blue-100 shadow-sm">
-              <p className="text-xs leading-relaxed">
-                💡 <span className="font-semibold">Wskazówka:</span> Użyj syntaxu <code>{"{{"} nazwa_zmiennej {"}}"}</code>, aby wstrzyknąć dynamiczne dane z poprzednich kroków (np. w adresie URL lub w JSONie).
-              </p>
-            </div>
           </div>
         );
+      }
 
       // Formularz opóźnienia czasowego
       case 'delay':
@@ -535,7 +556,6 @@ export default function WorkflowEditor({ onBack }: WorkflowEditorProps) {
               />
               <p className="text-[10px] text-muted-foreground mt-1">Uruchom tylko jeśli temat zawiera ten tekst.</p>
             </div>
-
             <div className="p-3 mt-4 bg-primary/5 rounded-lg border border-primary/20">
               <p className="text-xs text-muted-foreground leading-relaxed text-center">
                 Ten proces uruchomi się automatycznie dla nowych wiadomości przy użyciu globalnej konfiguracji <span className="font-semibold text-primary">IMAP</span> z panelu Settings.
@@ -680,6 +700,83 @@ export default function WorkflowEditor({ onBack }: WorkflowEditorProps) {
                 </p>
               </div>
             </div>
+          </div>
+        );
+      }
+
+      case 'for_each':
+        return (
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-foreground">Zmienna tablicowa</label>
+              <input
+                type="text"
+                placeholder="np. lista_maili"
+                className="w-full text-sm border-border rounded-md shadow-sm p-2.5 border focus:outline-none focus:ring-2 focus:ring-primary/50"
+                value={config.array_variable || ''}
+                onChange={(e) => updateNodeConfig('array_variable', e.target.value)}
+              />
+              <p className="text-[10px] text-muted-foreground">Klucz w JSON, który zawiera tablicę danych do iteracji.</p>
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-foreground">Uruchom Podproces</label>
+              <select
+                className="w-full text-sm border-border rounded-md shadow-sm border p-2.5 focus:outline-none focus:ring-2 focus:ring-primary/50 bg-white"
+                value={config.target_workflow_id || ''}
+                onChange={(e) => updateNodeConfig('target_workflow_id', e.target.value)}
+              >
+                <option value="">-- Wybierz docelowy workflow --</option>
+                {workflows?.map((w: any) => (
+                  <option key={w.id} value={w.id}>{w.name}</option>
+                ))}
+              </select>
+              <p className="text-[10px] text-muted-foreground">Dla każdego elementu z tablicy zostanie osobno uruchomiony wybrany proces.</p>
+            </div>
+          </div>
+        );
+      
+      case 'data_mapper': {
+        const mappings = config.mappings || [];
+        
+        const addMapping = () => {
+          updateNodeConfig('mappings', [...mappings, { id: Date.now(), source: '', target: '', type: 'string' }]);
+        };
+        const updateMapping = (idx: number, field: string, val: string) => {
+          const newMappings = [...mappings];
+          newMappings[idx] = { ...newMappings[idx], [field]: val };
+          updateNodeConfig('mappings', newMappings);
+        };
+        const removeMapping = (idx: number) => {
+          updateNodeConfig('mappings', mappings.filter((_: any, i: number) => i !== idx));
+        };
+
+        return (
+          <div className="space-y-4">
+            <label className="text-sm font-medium text-foreground">Reguły mapowania (Z -&gt; Do)</label>
+            <div className="space-y-2">
+              {mappings.map((m: any, idx: number) => (
+                <div key={m.id || idx} className="p-2 border border-border rounded-md bg-white space-y-2 relative shadow-sm">
+                  <div className="flex justify-between items-center">
+                    <span className="text-[10px] font-semibold text-muted-foreground uppercase">Reguła {idx + 1}</span>
+                    <button onClick={() => removeMapping(idx)} className="text-red-500 hover:text-red-700">
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                  <input type="text" placeholder="Źródło (np. klient.wiek)" className="w-full text-xs p-1.5 border rounded" value={m.source} onChange={(e) => updateMapping(idx, 'source', e.target.value)} />
+                  <div className="flex gap-2">
+                    <input type="text" placeholder="Docelowy klucz (np. age)" className="w-2/3 text-xs p-1.5 border rounded" value={m.target} onChange={(e) => updateMapping(idx, 'target', e.target.value)} />
+                    <select className="w-1/3 text-xs p-1.5 border rounded bg-white" value={m.type} onChange={(e) => updateMapping(idx, 'type', e.target.value)}>
+                      <option value="string">Tekst</option>
+                      <option value="int">Liczba</option>
+                      <option value="bool">Bool</option>
+                    </select>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <button onClick={addMapping} className="w-full py-1.5 text-xs font-medium text-primary border border-primary/30 rounded-md hover:bg-primary/5">
+              + Dodaj mapowanie
+            </button>
           </div>
         );
       }

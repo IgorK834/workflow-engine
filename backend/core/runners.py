@@ -4,6 +4,7 @@ import json
 import aiosmtplib
 import re
 import base64
+import os
 
 from email.message import EmailMessage
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,6 +14,8 @@ from datetime import datetime, timezone, timedelta
 
 from ..models import SystemSetting
 from .security import decrypt_value
+
+import google.generativeai as genai
 
 # Konfiguracja loggera
 logging.basicConfig(level=logging.INFO)
@@ -485,6 +488,77 @@ async def execute_manual_approval(config: dict[str, Any], input_data: dict[str, 
     }
 
 
+async def execute_gemini_custom(
+    config: dict[str, Any], input_data: dict[str, Any]
+) -> dict[str, Any]:
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        raise ValueError("Brak zmiennej środowiskowej GEMINI_API_KEY (konfiguracja globalna).")
+
+    prompt = config.get("prompt", "")
+    if not isinstance(prompt, str) or not prompt.strip():
+        raise ValueError("Krok przerwany: Brak promptu w konfiguracji węzła Gemini (Własny Prompt).")
+
+    final_prompt = inject_variables(prompt, input_data)
+
+    try:
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel("gemini-1.5-flash")
+        response = await model.generate_content_async(final_prompt)
+
+        generated_text = getattr(response, "text", None)
+        if not generated_text:
+            raise ValueError("Gemini zwrócił pustą odpowiedź.")
+
+        return {"generated_text": generated_text}
+    except Exception as e:
+        logger.error(f"[GEMINI CUSTOM] Błąd wywołania API: {e}", exc_info=True)
+        raise
+
+
+async def execute_gemini_template(
+    config: dict[str, Any], input_data: dict[str, Any]
+) -> dict[str, Any]:
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        raise ValueError("Brak zmiennej środowiskowej GEMINI_API_KEY (konfiguracja globalna).")
+
+    template_type = config.get("template_type", "summarize")
+    target_variable = config.get("target_variable", "")
+
+    if not isinstance(target_variable, str) or not target_variable.strip():
+        raise ValueError("Krok przerwany: Brak 'target_variable' w konfiguracji węzła Gemini (Szablon).")
+
+    templates: dict[str, str] = {
+        "summarize": "Jesteś asystentem. Zwięźle podsumuj poniższy tekst w 5-7 punktach.",
+        "translate_en": "Przetłumacz poniższy tekst na naturalny język angielski (zachowaj sens i ton).",
+        "extract_key_info": "Wyciągnij z poniższego tekstu kluczowe informacje w postaci listy punktów.",
+        "fix_language": "Popraw błędy językowe i stylistyczne poniższego tekstu (bez zmiany znaczenia).",
+        "extract_entities": "Wypisz encje (osoby, firmy, miejsca, daty, kwoty) znalezione w tekście w formacie JSON.",
+    }
+
+    system_prompt = templates.get(str(template_type), templates["summarize"])
+    injected_input = inject_variables(target_variable, input_data)
+    final_prompt = f"{system_prompt}\n\nTEKST:\n{injected_input}"
+
+    try:
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel("gemini-1.5-flash")
+        response = await model.generate_content_async(final_prompt)
+
+        generated_text = getattr(response, "text", None)
+        if not generated_text:
+            raise ValueError("Gemini zwrócił pustą odpowiedź.")
+
+        return {
+            "generated_text": generated_text,
+            "template_type": template_type,
+        }
+    except Exception as e:
+        logger.error(f"[GEMINI TEMPLATE] Błąd wywołania API: {e}", exc_info=True)
+        raise
+
+
 RUNNERS_REGISTRY = {
     "webhook": execute_webhook,
     "slack_msg": execute_slack_msg,
@@ -498,6 +572,8 @@ RUNNERS_REGISTRY = {
     "for_each": execute_for_each,
     "jira_create_ticket": execute_jira_create_ticket,
     "manual_approval": execute_manual_approval,
+    "gemini_custom": execute_gemini_custom,
+    "gemini_template": execute_gemini_template,
 }
 
 

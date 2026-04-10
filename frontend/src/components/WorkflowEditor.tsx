@@ -31,6 +31,8 @@ import {
   Copy,
   Trello,
   CheckCircle,
+  Sparkles,
+  Brain,
 } from 'lucide-react';
 import TriggerNode from '../nodes/TriggerNode';
 import LogicNode from '../nodes/LogicNode';
@@ -81,6 +83,8 @@ const nodeBlocks = [
       { type: 'action', subtype: 'db_insert', label: 'Zapisz do Bazy', icon: Database, description: 'INSERT/UPDATE' },
       { type: 'action', subtype: 'data_mapper', label: 'Mapowanie Danych', icon: FileJson, description: 'Transformacja JSON' },
       { type: 'action', subtype: 'jira_create_ticket', label: 'Jira: Utwórz Ticket', icon: Trello, description: 'Tworzy zgłoszenie w JIRA' },
+      { type: 'action', subtype: 'gemini_custom', label: 'Gemini: Własny Prompt', icon: Sparkles, description: 'Napisz dowolne polecenie do AI' },
+      { type: 'action', subtype: 'gemini_template', label: 'Gemini: Gotowe Szablony', icon: Brain, description: 'Szybkie operacje na tekście bez pisania promptów' },
     ],
   },
 ];
@@ -464,6 +468,58 @@ export default function WorkflowEditor({ onBack, workflowId }: WorkflowEditorPro
             <div className="p-3 mt-4 bg-muted/50 rounded-lg border border-border">
               <p className="text-xs text-muted-foreground leading-relaxed text-center">
                 System użyje globalnych ustawień SMTP z zakładki <span className="font-semibold text-foreground">Settings</span> do wysłania tej wiadomości.
+              </p>
+            </div>
+          </div>
+        );
+
+      case 'gemini_custom':
+        return (
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-foreground">Prompt dla Gemini</label>
+              <textarea
+                placeholder="Np. Podsumuj poniższy tekst i wypisz 3 najważniejsze wnioski..."
+                rows={5}
+                className="w-full text-sm border-border rounded-md p-2.5 border focus:outline-none focus:ring-2 focus:ring-primary/50 bg-white shadow-sm"
+                value={config.prompt || ''}
+                onChange={(e) => updateNodeConfig('prompt', e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                Możesz używać zmiennych z poprzednich kroków, np. <code className="font-mono">{'{{email.body}}'}</code>.
+              </p>
+            </div>
+          </div>
+        );
+
+      case 'gemini_template':
+        return (
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-foreground">Wybierz szablon</label>
+              <select
+                className="w-full text-sm border-border rounded-md shadow-sm border p-2.5 focus:outline-none focus:ring-2 focus:ring-primary/50 bg-white"
+                value={config.template_type || 'summarize'}
+                onChange={(e) => updateNodeConfig('template_type', e.target.value)}
+              >
+                <option value="summarize">Podsumuj tekst</option>
+                <option value="translate_en">Przetłumacz na Angielski</option>
+                <option value="extract_key_info">Wyciągnij kluczowe informacje</option>
+                <option value="fix_language">Popraw błędy językowe</option>
+              </select>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-foreground">Zmienna wejściowa do przetworzenia</label>
+              <input
+                type="text"
+                placeholder="np. {{email.body}}"
+                className="w-full text-sm border-border rounded-md shadow-sm p-2.5 border focus:outline-none focus:ring-2 focus:ring-primary/50"
+                value={config.target_variable || ''}
+                onChange={(e) => updateNodeConfig('target_variable', e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                Wpisz wartość lub zmienną w formacie <code className="font-mono">{'{{zmienna}}'}</code>.
               </p>
             </div>
           </div>

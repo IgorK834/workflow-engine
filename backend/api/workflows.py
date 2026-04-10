@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
+from sqlalchemy.orm import selectinload
 from sqlalchemy import func, case
 import uuid
 import asyncio
@@ -307,3 +308,44 @@ async def resume_workflow(workflow_id: uuid.UUID, db: AsyncSession = Depends(get
     asyncio.create_task(engine.run(workflow.graph_json))
 
     return {"status": "resumed", "message": "Proces pomyślnie wznowiony!"}
+
+@router.get("/{workflow_id}/executions/{execution_id}")
+async def get_execution_details(workflow_id: uuid.UUID, execution_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    """Pobiera szczegóły konkretnej akcji pod widok i śledzenie"""
+    stmt = (
+        select(WorkflowExecution)
+        .options(selectinload(WorkflowExecution.steps), selectinload(WorkflowExecution.workflow))
+        .where(WorkflowExecution.id == execution_id, WorkflowExecution.workflow_id == workflow_id)
+    )
+
+    result = await db.execute(stmt)
+    execution = result.scalar_one_or_none()
+
+    if not execution:
+        raise HTTPException(status_code=404, detail="Nie znaleziono podanej akcji")
+    
+    return {
+        "execution": {
+            "id": str(execution.id),
+            "status": execution.status.value if hasattr(execution.status, "value") else str(execution.status),
+            "started_at": execution.started_at,
+            "finished_at": execution.finished_at
+        },
+        "workflow": {
+            "name": execution.workflow.name,
+            "graph_json": execution.workflow.graph_json
+        },
+        "steps": [
+            {
+                "id": str(step.id),
+                "node_id": step.node_id,
+                "status": step.status.value if hasattr(step.status, "value") else str(step.status),
+                "input_data": step.input_data,
+                "output_data": step.output_data,
+                "error_message": step.error_message,
+                "started_at": step.started_at,
+                "finnished_at": step.finished_at
+            }
+            for step in execution.steps
+        ]
+    }

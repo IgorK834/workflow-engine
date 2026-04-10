@@ -116,7 +116,7 @@ async def execute_db_insert(config: dict[str, Any], input_data: dict[str, Any]) 
 
 
 async def execute_http_request(config: dict[str, Any], input_data: dict[str, Any]) -> dict[str, Any]:
-    """Węzeł HTTP wspierający dynamiczne formularze (Klucz-Wartość) i różne typy Body."""
+    """Węzeł HTTP wspierający zoptymalizowane struktury JSON oraz dynamiczne formularze."""
     raw_url = config.get("url", "")
     method = config.get("method", "GET").upper()
 
@@ -126,8 +126,12 @@ async def execute_http_request(config: dict[str, Any], input_data: dict[str, Any
     url = inject_variables(raw_url, input_data)
 
     headers = {}
-    headers_config = config.get("headers", [])
-    if isinstance(headers_config, list):
+    headers_config = config.get("headers", {})
+    if isinstance(headers_config, dict):
+        for k, v in headers_config.items():
+            if k.strip():
+                headers[k.strip()] = inject_variables(str(v), input_data)
+    elif isinstance(headers_config, list):  # Legacy fallback dla starszych procesów
         for h in headers_config:
             k = h.get("key", "").strip()
             v = h.get("value", "")
@@ -135,13 +139,19 @@ async def execute_http_request(config: dict[str, Any], input_data: dict[str, Any
                 headers[k] = inject_variables(str(v), input_data)
     elif isinstance(headers_config, str) and headers_config.strip():
         try:
-            headers = json.loads(inject_variables(headers_config, input_data))
+            headers_parsed = json.loads(inject_variables(headers_config, input_data))
+            if isinstance(headers_parsed, dict):
+                headers = headers_parsed
         except json.JSONDecodeError:
             pass
 
     params = {}
-    params_config = config.get("query_params", [])
-    if isinstance(params_config, list):
+    params_config = config.get("query_params", {})
+    if isinstance(params_config, dict):
+        for k, v in params_config.items():
+            if k.strip():
+                params[k.strip()] = inject_variables(str(v), input_data)
+    elif isinstance(params_config, list): # Legacy fallback
         for p in params_config:
             k = p.get("key", "").strip()
             v = p.get("value", "")
@@ -149,34 +159,40 @@ async def execute_http_request(config: dict[str, Any], input_data: dict[str, Any
                 params[k] = inject_variables(str(v), input_data)
 
     body_type = config.get("body_type", "json").lower()
-    body_config = config.get("body", [])
+    body_config = config.get("body", {})
     
     json_body = None
     data_body = None
     content_body = None
 
     if method in ["POST", "PUT", "PATCH", "DELETE"]:
-        if body_type == "json" and isinstance(body_config, list):
-            json_body = {}
-            for b in body_config:
-                k = b.get("key", "").strip()
-                v = b.get("value", "")
-                target_type = b.get("type", "string").lower()
-                
-                if k:
-                    injected_val = inject_variables(str(v), input_data)
-                    try:
-                        if target_type == "int":
-                            json_body[k] = int(injected_val)
-                        elif target_type == "float":
-                            json_body[k] = float(injected_val)
-                        elif target_type in ["bool", "boolean"]:
-                            json_body[k] = injected_val.lower() in ['true', '1', 'yes', 't']
-                        else:
+        if body_type == "json":
+            if isinstance(body_config, dict):
+                json_body = {}
+                for k, v in body_config.items():
+                    if k.strip():
+                        json_body[k.strip()] = inject_variables(str(v), input_data)
+            elif isinstance(body_config, list): # Legacy fallback dla typowanych pól w arrayach
+                json_body = {}
+                for b in body_config:
+                    k = b.get("key", "").strip()
+                    v = b.get("value", "")
+                    target_type = b.get("type", "string").lower()
+                    
+                    if k:
+                        injected_val = inject_variables(str(v), input_data)
+                        try:
+                            if target_type == "int":
+                                json_body[k] = int(injected_val)
+                            elif target_type == "float":
+                                json_body[k] = float(injected_val)
+                            elif target_type in ["bool", "boolean"]:
+                                json_body[k] = injected_val.lower() in ['true', '1', 'yes', 't']
+                            else:
+                                json_body[k] = injected_val
+                        except ValueError:
                             json_body[k] = injected_val
-                    except ValueError:
-                        json_body[k] = injected_val
-                        
+                            
         elif body_type == "form-data" and isinstance(body_config, list):
             data_body = {}
             for b in body_config:

@@ -29,6 +29,14 @@ export async function listWorkflows(): Promise<Workflow[]> {
   return apiRequest<Workflow[]>('/workflows/');
 }
 
+export async function listExecutions(): Promise<any[]> {
+  return apiRequest<any[]>('/workflows/executions');
+}
+
+export async function getExecutionDetails(workflowId: string, executionId: string): Promise<any> {
+  return apiRequest<any>(`/workflows/${workflowId}/executions/${executionId}`);
+}
+
 export async function executeWorkflowTest(workflowId: string): Promise<any> {
   return apiRequest<any>(`/workflows/${workflowId}/execute`, {method: 'POST'});
 }

@@ -190,6 +190,37 @@ export default function WorkflowEditor({ onBack, workflowId }: WorkflowEditorPro
     );
   };
 
+  // Logika transformacji list UI -> JSON przed zapisem na backend
+  const buildFinalNodeConfig = (config: any) => {
+    const finalConfig = { ...config };
+
+    if (Array.isArray(config.headers_list)) {
+      finalConfig.headers = config.headers_list.reduce((acc: any, curr: any) => {
+        if (curr.key && curr.key.trim()) acc[curr.key.trim()] = curr.value;
+        return acc;
+      }, {});
+      delete finalConfig.headers_list;
+    }
+
+    if (Array.isArray(config.query_params_list)) {
+      finalConfig.query_params = config.query_params_list.reduce((acc: any, curr: any) => {
+        if (curr.key && curr.key.trim()) acc[curr.key.trim()] = curr.value;
+        return acc;
+      }, {});
+      delete finalConfig.query_params_list;
+    }
+
+    if (finalConfig.body_type === 'json' && Array.isArray(config.body_list)) {
+      finalConfig.body = config.body_list.reduce((acc: any, curr: any) => {
+        if (curr.key && curr.key.trim()) acc[curr.key.trim()] = curr.value;
+        return acc;
+      }, {});
+      delete finalConfig.body_list;
+    }
+
+    return finalConfig;
+  };
+
   const handleSave = async () => {
     if (isReadOnly) {
       alert('Ten proces jest uruchomiony — zatrzymaj go, aby odblokować edycję.');
@@ -202,7 +233,7 @@ export default function WorkflowEditor({ onBack, workflowId }: WorkflowEditorPro
       return;
     }
 
-    // Serializacja danych do formatu zgodnego ze schematem
+    // Serializacja danych do formatu zgodnego ze schematem + konwersja dynamicznych list
     const payload = {
       name: `Nowy Workflow - ${new Date().toLocaleTimeString()}`,
       description: "Wygenerowano z kreatora",
@@ -214,7 +245,7 @@ export default function WorkflowEditor({ onBack, workflowId }: WorkflowEditorPro
           data: {
             subtype: n.data.subtype,
             label: n.data.label,
-            config: n.data.config || {}
+            config: buildFinalNodeConfig(n.data.config || {})
           }
         })),
         edges: edges.map(e => ({
@@ -440,8 +471,18 @@ export default function WorkflowEditor({ onBack, workflowId }: WorkflowEditorPro
         
       // Formularz zewnętrznego zapytania HTTP
       case 'http_request': {
-        const headersList = config.headers || [];
-        const paramsList = config.query_params || [];
+        // Zamiana starych, stałych obiektów na płaskie tablice do renderowania
+        const getListForUI = (listKey: string, objKey: string) => {
+          if (config[listKey] !== undefined) return config[listKey];
+          if (config[objKey] !== undefined && config[objKey] !== null && typeof config[objKey] === 'object' && !Array.isArray(config[objKey])) {
+              return Object.entries(config[objKey]).map(([k, v], i) => ({ id: Date.now() + i, key: k, value: String(v) }));
+          }
+          return [];
+        };
+
+        const headersList = getListForUI('headers_list', 'headers');
+        const paramsList = getListForUI('query_params_list', 'query_params');
+        const bodyList = getListForUI('body_list', 'body');
         
         const addListItem = (keyName: string, list: any[]) => {
           if (isReadOnly) return;
@@ -467,15 +508,15 @@ export default function WorkflowEditor({ onBack, workflowId }: WorkflowEditorPro
                 className={`text-xs ${isReadOnly ? 'text-muted-foreground' : 'text-primary hover:underline'}`}
                 disabled={isReadOnly}
               >
-                + Dodaj
+                + Dodaj wiersz
               </button>
             </div>
             {list.map((item: any, idx: number) => (
               <div key={item.id || idx} className="flex gap-2 items-center">
                 <input
                   type="text"
-                  placeholder="Klucz"
-                  className="w-1/3 text-xs p-1.5 border rounded disabled:opacity-60 disabled:cursor-not-allowed"
+                  placeholder="Klucz (np. Auth)"
+                  className="w-1/3 text-xs p-2 border rounded disabled:opacity-60 disabled:bg-slate-50 disabled:cursor-not-allowed bg-white shadow-sm"
                   value={item.key}
                   onChange={(e) => updateListItem(configKey, list, idx, 'key', e.target.value)}
                   disabled={isReadOnly}
@@ -483,20 +524,25 @@ export default function WorkflowEditor({ onBack, workflowId }: WorkflowEditorPro
                 <input
                   type="text"
                   placeholder="Wartość"
-                  className="w-full text-xs p-1.5 border rounded disabled:opacity-60 disabled:cursor-not-allowed"
+                  className="w-full text-xs p-2 border rounded disabled:opacity-60 disabled:bg-slate-50 disabled:cursor-not-allowed bg-white shadow-sm"
                   value={item.value}
                   onChange={(e) => updateListItem(configKey, list, idx, 'value', e.target.value)}
                   disabled={isReadOnly}
                 />
                 <button
                   onClick={() => removeListItem(configKey, list, idx)}
-                  className={`shrink-0 ${isReadOnly ? 'text-muted-foreground' : 'text-red-500'}`}
+                  className={`shrink-0 p-1.5 rounded-md transition-colors ${isReadOnly ? 'text-muted-foreground' : 'text-red-500 hover:bg-red-50'}`}
                   disabled={isReadOnly}
                 >
-                  <X className="w-3 h-3"/>
+                  <X className="w-4 h-4"/>
                 </button>
               </div>
             ))}
+            {list.length === 0 && (
+              <p className="text-xs text-muted-foreground italic text-center p-2 bg-muted/20 rounded border border-dashed border-border">
+                Brak zdefiniowanych kluczy. Kliknij "Dodaj wiersz".
+              </p>
+            )}
           </div>
         );
 
@@ -505,28 +551,28 @@ export default function WorkflowEditor({ onBack, workflowId }: WorkflowEditorPro
             <div className="space-y-2">
               <label className="text-sm font-medium text-foreground">Metoda i Adres URL</label>
               <div className="flex gap-2">
-                <select className="w-1/3 text-sm border-border rounded-md border p-2 focus:outline-none bg-white" value={config.method || 'GET'} onChange={(e) => updateNodeConfig('method', e.target.value)}>
-                  <option value="GET">GET</option><option value="POST">POST</option><option value="PUT">PUT</option><option value="DELETE">DELETE</option>
+                <select className="w-1/3 text-sm border-border rounded-md border p-2 focus:outline-none bg-white shadow-sm" value={config.method || 'GET'} onChange={(e) => updateNodeConfig('method', e.target.value)}>
+                  <option value="GET">GET</option><option value="POST">POST</option><option value="PUT">PUT</option><option value="DELETE">DELETE</option><option value="PATCH">PATCH</option>
                 </select>
-                <input type="text" placeholder="https://api.com/v1/..." className="w-2/3 text-sm border-border rounded-md border p-2" value={config.url || ''} onChange={(e) => updateNodeConfig('url', e.target.value)} />
+                <input type="text" placeholder="https://api.com/v1/..." className="w-2/3 text-sm border-border rounded-md border p-2 shadow-sm" value={config.url || ''} onChange={(e) => updateNodeConfig('url', e.target.value)} />
               </div>
             </div>
 
-            {renderDynamicList("Parametry URL (Query)", "query_params", paramsList)}
-            {renderDynamicList("Nagłówki (Headers)", "headers", headersList)}
+            {renderDynamicList("Parametry URL (Query)", "query_params_list", paramsList)}
+            {renderDynamicList("Nagłówki (Headers)", "headers_list", headersList)}
 
             {['POST', 'PUT', 'PATCH'].includes(config.method || 'GET') && (
               <div className="space-y-2 mt-4 border-t border-border pt-4">
                 <label className="text-sm font-medium text-foreground">Typ Payloadu (Body)</label>
-                <select className="w-full text-sm border-border rounded-md border p-2 bg-white mb-2" value={config.body_type || 'raw'} onChange={(e) => updateNodeConfig('body_type', e.target.value)}>
-                  <option value="raw">Raw (np. czysty JSON wklejony z palca)</option>
-                  <option value="json">Formularz JSON (Klucz-Wartość)</option>
+                <select className="w-full text-sm border-border rounded-md shadow-sm border p-2.5 bg-white mb-2" value={config.body_type || 'json'} onChange={(e) => updateNodeConfig('body_type', e.target.value)}>
+                  <option value="json">Dynamiczny Formularz JSON (Zalecane)</option>
+                  <option value="raw">Raw (Wklejony surowy tekst / kod)</option>
                 </select>
                 
-                {(!config.body_type || config.body_type === 'raw') ? (
-                  <textarea placeholder='{"key": "{{variable}}"}' rows={4} className="w-full font-mono text-xs border rounded-md p-2" value={typeof config.body === 'string' ? config.body : ''} onChange={(e) => updateNodeConfig('body', e.target.value)} />
+                {config.body_type === 'raw' ? (
+                  <textarea placeholder='{"key": "{{variable}}"}' rows={4} className="w-full font-mono text-xs border rounded-md shadow-sm p-2 focus:outline-none focus:ring-1 focus:ring-primary/50" value={typeof config.body === 'string' ? config.body : ''} onChange={(e) => updateNodeConfig('body', e.target.value)} />
                 ) : (
-                  renderDynamicList("Pola Body", "body", Array.isArray(config.body) ? config.body : [])
+                  renderDynamicList("Pola Body (Klucz-Wartość)", "body_list", bodyList)
                 )}
               </div>
             )}

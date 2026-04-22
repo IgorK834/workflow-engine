@@ -5,6 +5,8 @@ import aiosmtplib
 import re
 import base64
 import os
+import inspect
+import uuid
 
 from email.message import EmailMessage
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,7 +14,7 @@ from sqlalchemy import select
 from typing import Any
 from datetime import datetime, timezone, timedelta
 
-from ..models import SystemSetting
+from ..models import SystemSetting, Collection, CollectionRecord
 from .security import decrypt_value
 
 import google.generativeai as genai
@@ -267,13 +269,228 @@ async def execute_if_else(config: dict[str, Any], input_data: dict[str, Any]) ->
     }
 
 
-async def execute_db_insert(config: dict[str, Any], input_data: dict[str, Any]) -> dict[str, Any]:
-    """Symulacja zapisu do bazy danych"""
-    table = config.get("table", "unknown_table")
+def _resolve_template_value(value: Any, input_data: dict[str, Any]) -> Any:
+    if isinstance(value, str):
+        stripped = value.strip()
+        pure_template = re.fullmatch(r"\{\{\s*([a-zA-Z0-9_.-]+)\s*\}\}", stripped)
+        if pure_template:
+            path = pure_template.group(1)
+            current: Any = input_data
+            for part in path.split("."):
+                if isinstance(current, dict):
+                    current = current.get(part)
+                elif isinstance(current, list) and part.isdigit():
+                    idx = int(part)
+                    current = current[idx] if 0 <= idx < len(current) else None
+                else:
+                    return None
+                if current is None:
+                    return None
+            return current
+        return inject_variables(value, input_data)
+    return value
 
-    logger.info(f"[DB] Zapisuję do tabeli '{table}' rekord: '{input_data}'")
 
-    return {"status": "inserted", "table": table, "inserted_record": input_data}
+def _build_collection_payload(config: dict[str, Any], input_data: dict[str, Any]) -> dict[str, Any]:
+    mappings = config.get("mappings", [])
+    if isinstance(mappings, list) and mappings:
+        payload: dict[str, Any] = {}
+        for item in mappings:
+            target_key = str(item.get("target", "")).strip()
+            source_value = item.get("source", "")
+            if target_key:
+                payload[target_key] = _resolve_template_value(source_value, input_data)
+        return payload
+
+    fields = config.get("fields", {})
+    if isinstance(fields, dict) and fields:
+        return {k: _resolve_template_value(v, input_data) for k, v in fields.items()}
+
+    return dict(input_data)
+
+
+async def _get_workspace_collection(
+    db: AsyncSession,
+    workspace_id: Any,
+    config: dict[str, Any],
+) -> Collection:
+    collection_id_raw = config.get("collection_id")
+    collection_name = str(config.get("collection_name", "")).strip()
+
+    if collection_id_raw:
+        try:
+            collection_id = collection_id_raw if isinstance(collection_id_raw, str) else str(collection_id_raw)
+            collection_uuid = uuid.UUID(collection_id)
+            result = await db.execute(
+                select(Collection).where(
+                    Collection.id == collection_uuid,
+                    Collection.workspace_id == workspace_id,
+                )
+            )
+            collection = result.scalar_one_or_none()
+        except Exception as e:
+            raise ValueError(f"Niepoprawne collection_id: {e}")
+    elif collection_name:
+        result = await db.execute(
+            select(Collection).where(
+                Collection.name == collection_name,
+                Collection.workspace_id == workspace_id,
+            )
+        )
+        collection = result.scalar_one_or_none()
+    else:
+        collection = None
+
+    if not collection:
+        raise ValueError("Nie znaleziono kolekcji w bieżącym workspace.")
+    return collection
+
+
+def _match_record(data: dict[str, Any], match: dict[str, Any]) -> bool:
+    for key, expected in match.items():
+        if key not in data:
+            return False
+        if str(data.get(key)) != str(expected):
+            return False
+    return True
+
+
+def _build_match_payload(config: dict[str, Any], input_data: dict[str, Any]) -> dict[str, Any]:
+    rules = config.get("match_rules", [])
+    if isinstance(rules, list) and rules:
+        payload: dict[str, Any] = {}
+        for rule in rules:
+            field = str(rule.get("field", "")).strip()
+            if field:
+                payload[field] = _resolve_template_value(rule.get("value"), input_data)
+        if payload:
+            return payload
+
+    match = config.get("match", {})
+    if isinstance(match, dict):
+        payload = {
+            str(k): _resolve_template_value(v, input_data)
+            for k, v in match.items()
+            if str(k).strip()
+        }
+        if payload:
+            return payload
+
+    match_field = str(config.get("match_field", "")).strip()
+    match_value = _resolve_template_value(config.get("match_value"), input_data)
+    if match_field:
+        return {match_field: match_value}
+    return {}
+
+
+async def execute_collection_insert(
+    config: dict[str, Any],
+    input_data: dict[str, Any],
+    db: AsyncSession = None,
+    workspace_id: Any = None,
+) -> dict[str, Any]:
+    if not db:
+        raise ValueError("Brak połączenia z bazą danych")
+    if not workspace_id:
+        raise ValueError("Brak workspace_id dla operacji kolekcji")
+
+    collection = await _get_workspace_collection(db, workspace_id, config)
+    payload = _build_collection_payload(config, input_data)
+
+    record = CollectionRecord(collection_id=collection.id, data=payload)
+    db.add(record)
+    await db.commit()
+    await db.refresh(record)
+
+    logger.info(f"[COLLECTION INSERT] Dodano rekord do kolekcji '{collection.name}'")
+    return {
+        "status": "inserted",
+        "collection_id": str(collection.id),
+        "collection_name": collection.name,
+        "record_id": str(record.id),
+        "payload": payload,
+    }
+
+
+async def execute_collection_update(
+    config: dict[str, Any],
+    input_data: dict[str, Any],
+    db: AsyncSession = None,
+    workspace_id: Any = None,
+) -> dict[str, Any]:
+    if not db:
+        raise ValueError("Brak połączenia z bazą danych")
+    if not workspace_id:
+        raise ValueError("Brak workspace_id dla operacji kolekcji")
+
+    collection = await _get_workspace_collection(db, workspace_id, config)
+    match_payload = _build_match_payload(config, input_data)
+
+    if not match_payload:
+        raise ValueError("Brak warunku dopasowania dla aktualizacji kolekcji.")
+
+    records_result = await db.execute(
+        select(CollectionRecord).where(CollectionRecord.collection_id == collection.id)
+    )
+    records = records_result.scalars().all()
+    target_record = next((r for r in records if _match_record(r.data or {}, match_payload)), None)
+    if not target_record:
+        raise ValueError("Nie znaleziono rekordu spełniającego warunek aktualizacji.")
+
+    update_payload = _build_collection_payload(config, input_data)
+    target_record.data = {**(target_record.data or {}), **update_payload}
+    await db.commit()
+    await db.refresh(target_record)
+
+    logger.info(f"[COLLECTION UPDATE] Zaktualizowano rekord w kolekcji '{collection.name}'")
+    return {
+        "status": "updated",
+        "collection_id": str(collection.id),
+        "collection_name": collection.name,
+        "record_id": str(target_record.id),
+        "payload": target_record.data,
+    }
+
+
+async def execute_collection_find(
+    config: dict[str, Any],
+    input_data: dict[str, Any],
+    db: AsyncSession = None,
+    workspace_id: Any = None,
+) -> dict[str, Any]:
+    if not db:
+        raise ValueError("Brak połączenia z bazą danych")
+    if not workspace_id:
+        raise ValueError("Brak workspace_id dla operacji kolekcji")
+
+    collection = await _get_workspace_collection(db, workspace_id, config)
+    limit = max(1, min(int(config.get("limit", 10)), 100))
+
+    match_payload = _build_match_payload(config, input_data)
+
+    records_result = await db.execute(
+        select(CollectionRecord)
+        .where(CollectionRecord.collection_id == collection.id)
+        .order_by(CollectionRecord.created_at.desc())
+        .limit(500)
+    )
+    records = records_result.scalars().all()
+
+    matched = [
+        {"id": str(record.id), "data": record.data or {}}
+        for record in records
+        if not match_payload or _match_record(record.data or {}, match_payload)
+    ][:limit]
+
+    logger.info(f"[COLLECTION FIND] Znaleziono {len(matched)} rekordów w '{collection.name}'")
+    return {
+        "status": "found",
+        "collection_id": str(collection.id),
+        "collection_name": collection.name,
+        "count": len(matched),
+        "items": matched,
+        "payload": matched[0]["data"] if matched else {},
+    }
 
 
 async def execute_http_request(config: dict[str, Any], input_data: dict[str, Any]) -> dict[str, Any]:
@@ -407,15 +624,19 @@ async def execute_http_request(config: dict[str, Any], input_data: dict[str, Any
         raise ValueError(f"Błąd sieciowy podczas komunikacji z zewnętrznym API: {exc}")
 
 async def execute_send_email(
-    config: dict[str, Any], input_data: dict[str, Any], db: AsyncSession = None
+    config: dict[str, Any],
+    input_data: dict[str, Any],
+    db: AsyncSession = None,
+    workspace_id: Any = None,
 ) -> dict[str, Any]:
     """Wysyłka email"""
     if not db:
         raise ValueError("Brak połączenia z bazą danych")
 
-    result = await db.execute(
-        select(SystemSetting).where(SystemSetting.key == "smtp_profile")
-    )
+    query = select(SystemSetting).where(SystemSetting.key == "smtp_profile")
+    if workspace_id is not None:
+        query = query.where(SystemSetting.workspace_id == workspace_id)
+    result = await db.execute(query)
     setting = result.scalar_one_or_none()
 
     if not setting or not setting.value:
@@ -577,12 +798,20 @@ async def execute_for_each(
         "items": items,
     }
 
-async def execute_jira_create_ticket(config: dict[str, Any], input_data: dict[str, Any], db: AsyncSession = None) -> dict[str, Any]:
+async def execute_jira_create_ticket(
+    config: dict[str, Any],
+    input_data: dict[str, Any],
+    db: AsyncSession = None,
+    workspace_id: Any = None,
+) -> dict[str, Any]:
     """Węzeł tworzący ticket w Jira przy uyciu ADF"""
     if not db:
         raise ValueError("[JIRA] Brak połączenia z bazą danych")
     
-    result = await db.execute(select(SystemSetting).where(SystemSetting.key == "jira_profile"))
+    query = select(SystemSetting).where(SystemSetting.key == "jira_profile")
+    if workspace_id is not None:
+        query = query.where(SystemSetting.workspace_id == workspace_id)
+    result = await db.execute(query)
     setting = result.scalar_one_or_none()
 
     if not setting or not setting.value:
@@ -726,7 +955,10 @@ RUNNERS_REGISTRY = {
     "webhook": execute_webhook,
     "slack_msg": execute_slack_msg,
     "if_else": execute_if_else,
-    "db_insert": execute_db_insert,
+    "db_insert": execute_collection_insert,  # alias legacy
+    "collection_insert": execute_collection_insert,
+    "collection_update": execute_collection_update,
+    "collection_find": execute_collection_find,
     "http_request": execute_http_request,
     "send_email": execute_send_email,
     "delay": execute_delay,
@@ -745,6 +977,7 @@ async def run_node_task(
     config: dict[str, Any],
     input_data: dict[str, Any],
     db: AsyncSession = None,
+    workspace_id: Any = None,
 ) -> dict[str, Any]:
     """Otrzymuje typ klocka i uruchamia odpowiedniego runnera"""
     runner_func = RUNNERS_REGISTRY.get(subtype)
@@ -752,7 +985,10 @@ async def run_node_task(
     if not runner_func:
         raise ValueError(f"Brak zdefiniowanego runnera dla klocka o typie: '{subtype}'")
 
-    if subtype == "send_email":
-        return await runner_func(config, input_data, db=db)
-    else:
-        return await runner_func(config, input_data)
+    runner_params = inspect.signature(runner_func).parameters
+    kwargs: dict[str, Any] = {}
+    if "db" in runner_params:
+        kwargs["db"] = db
+    if "workspace_id" in runner_params:
+        kwargs["workspace_id"] = workspace_id
+    return await runner_func(config, input_data, **kwargs)

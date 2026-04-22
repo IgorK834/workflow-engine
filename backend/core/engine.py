@@ -46,6 +46,16 @@ class ExecutionEngine:
 
         node_outputs = {}
         completed_node_ids = set()
+        current_workspace_id = None
+
+        execution_result = await self.db.execute(
+            select(WorkflowExecution).where(WorkflowExecution.id == self.execution_id)
+        )
+        current_execution = execution_result.scalar_one_or_none()
+        if current_execution:
+            current_workspace_id = current_execution.workspace_id
+        if current_workspace_id is None:
+            raise ValueError(f"Brak workspace_id dla execution: {self.execution_id}")
 
         result = await self.db.execute(
             select(ExecutionStep).where(ExecutionStep.execution_id == self.execution_id)
@@ -131,6 +141,7 @@ class ExecutionEngine:
                     config=node.data.config,
                     input_data=input_data,
                     db=self.db,
+                    workspace_id=current_workspace_id,
                 )
 
                 if isinstance(output_data, dict) and output_data.get("__pause__"):
@@ -171,7 +182,10 @@ class ExecutionEngine:
                         )
 
                     result = await self.db.execute(
-                        select(Workflow).where(Workflow.id == target_wf_id)
+                        select(Workflow).where(
+                            Workflow.id == target_wf_id,
+                            Workflow.workspace_id == current_workspace_id,
+                        )
                     )
                     target_workflow = result.scalar_one_or_none()
 
@@ -187,6 +201,7 @@ class ExecutionEngine:
 
                         sub_exec = WorkflowExecution(
                             workflow_id=target_wf_id,
+                            workspace_id=current_workspace_id,
                             status=ExecutionStatus.PENDING,
                             parent_id=self.execution_id,
                         )

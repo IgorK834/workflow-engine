@@ -42,6 +42,9 @@ class Workspace(Base):
     workflows: Mapped[list["Workflow"]] = relationship(back_populates="workspace")
     executions: Mapped[list["WorkflowExecution"]] = relationship(back_populates="workspace")
     settings: Mapped[list["SystemSetting"]] = relationship(back_populates="workspace")
+    collections: Mapped[list["Collection"]] = relationship(
+        back_populates="workspace", cascade="all, delete-orphan"
+    )
     members: Mapped[list["WorkspaceMember"]] = relationship(
         back_populates="workspace", cascade="all, delete-orphan"
     )
@@ -216,3 +219,49 @@ class SystemSetting(Base):
         DateTime(timezone=True), default=utc_now, onupdate=utc_now
     )
     workspace: Mapped["Workspace"] = relationship(back_populates="settings")
+
+
+class Collection(Base):
+    __tablename__ = "collections"
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "name", name="uq_collections_workspace_name"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now
+    )
+
+    workspace: Mapped["Workspace"] = relationship(back_populates="collections")
+    records: Mapped[list["CollectionRecord"]] = relationship(
+        back_populates="collection", cascade="all, delete-orphan"
+    )
+
+
+class CollectionRecord(Base):
+    __tablename__ = "collection_records"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    collection_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("collections.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    data: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now
+    )
+
+    collection: Mapped["Collection"] = relationship(back_populates="records")

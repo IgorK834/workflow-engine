@@ -5,17 +5,19 @@ import {
   Settings,
   Plus,
   Workflow,
+  Database,
 } from 'lucide-react';
 
 interface SidebarProps {
-  currentView: 'dashboard' | 'editor' | 'processes' | 'monitoring' | 'settings';
-  onNavigate: (view: 'dashboard' | 'editor' | 'processes' | 'monitoring' | 'settings') => void;
+  currentView: 'dashboard' | 'editor' | 'processes' | 'monitoring' | 'collections' | 'settings';
+  onNavigate: (view: 'dashboard' | 'editor' | 'processes' | 'monitoring' | 'collections' | 'settings') => void;
 }
 
 const navItems = [
   { id: 'dashboard' as const, label: 'Dashboard', icon: LayoutDashboard },
   { id: 'processes' as const, label: 'Moje procesy', icon: GitBranch },
   { id: 'monitoring' as const, label: 'Monitoring', icon: Activity },
+  { id: 'collections' as const, label: 'Kolekcje', icon: Database },
   { id: 'settings' as const, label: 'Ustawienia', icon: Settings },
 ];
 

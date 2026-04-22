@@ -6,8 +6,9 @@ import WorkflowEditor from './components/WorkflowEditor';
 import Processes from './components/Processes';
 import Monitoring from './components/Monitoring';
 import Settings from './components/Settings';
+import Collections from './components/Collections';
 
-type ViewType = 'dashboard' | 'editor' | 'processes' | 'monitoring' | 'settings';
+type ViewType = 'dashboard' | 'editor' | 'processes' | 'monitoring' | 'collections' | 'settings';
 
 function AppContent() {
   const [currentView, setCurrentView] = useState<ViewType>('dashboard');
@@ -43,6 +44,8 @@ function AppContent() {
         return <Processes onEditWorkflow={handleEditWorkflow} />;
       case 'monitoring':
         return <Monitoring />;
+      case 'collections':
+        return <Collections />;
       case 'settings':
         return <Settings />;
       default:

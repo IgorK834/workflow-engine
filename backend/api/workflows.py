@@ -17,19 +17,33 @@ from ..core.runners import JiraClient
 from ..models import SystemSetting, ExecutionStatus, ExecutionStep
 
 router = APIRouter(prefix="/workflows", tags=["workflows"])
+TEST_WORKSPACE_ID = uuid.UUID("11111111-1111-1111-1111-111111111111")
+
+
+async def get_current_workspace_id() -> uuid.UUID:
+    # Placeholder do czasu wdrożenia JWT / auth middleware.
+    return TEST_WORKSPACE_ID
 
 
 @router.get("/", response_model=list[WorkflowResponse])
-async def list_workflows(db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(Workflow))
+async def list_workflows(
+    db: AsyncSession = Depends(get_db),
+    workspace_id: uuid.UUID = Depends(get_current_workspace_id),
+):
+    result = await db.execute(
+        select(Workflow).where(Workflow.workspace_id == workspace_id)
+    )
     return result.scalars().all()
 
 
 @router.post("/", response_model=WorkflowResponse)
 async def create_workflow(
-    workflow_in: WorkflowCreate, db: AsyncSession = Depends(get_db)
+    workflow_in: WorkflowCreate,
+    db: AsyncSession = Depends(get_db),
+    workspace_id: uuid.UUID = Depends(get_current_workspace_id),
 ):
     new_workflow = Workflow(
+        workspace_id=workspace_id,
         name=workflow_in.name,
         description=workflow_in.description,
         graph_json=workflow_in.graph_json.model_dump(),
@@ -43,18 +57,31 @@ async def create_workflow(
 
 
 @router.get("/executions", response_model=list[WorkflowExecutiveResponse])
-async def list_executions(db: AsyncSession = Depends(get_db)):
+async def list_executions(
+    db: AsyncSession = Depends(get_db),
+    workspace_id: uuid.UUID = Depends(get_current_workspace_id),
+):
     """Pobiera historie wszystkich uruchomień procesów"""
     result = await db.execute(
-        select(WorkflowExecution).order_by(WorkflowExecution.started_at.desc())
+        select(WorkflowExecution)
+        .where(WorkflowExecution.workspace_id == workspace_id)
+        .order_by(WorkflowExecution.started_at.desc())
     )
     return result.scalars().all()
 
 
 @router.post("/{workflow_id}/execute", response_model=WorkflowExecutiveResponse)
-async def execute_workflow(workflow_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+async def execute_workflow(
+    workflow_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    workspace_id: uuid.UUID = Depends(get_current_workspace_id),
+):
     """Inicjalizacja nowego wykonania procesu i odpalenie silnika"""
-    result = await db.execute(select(Workflow).where(Workflow.id == workflow_id))
+    result = await db.execute(
+        select(Workflow).where(
+            Workflow.id == workflow_id, Workflow.workspace_id == workspace_id
+        )
+    )
     workflow = result.scalar_one_or_none()
 
     if not workflow:
@@ -62,8 +89,14 @@ async def execute_workflow(workflow_id: uuid.UUID, db: AsyncSession = Depends(ge
             status_code=404, detail="Nie znaleziono procesu o podanym ID"
         )
 
-    state_manager = StateManager(db)
-    execution = await state_manager.initialize_execution(workflow_id)
+    execution = WorkflowExecution(
+        workflow_id=workflow_id,
+        workspace_id=workspace_id,
+        status=ExecutionStatus.RUNNING,
+    )
+    db.add(execution)
+    await db.commit()
+    await db.refresh(execution)
 
     engine = ExecutionEngine(db, execution.id)
 
@@ -78,10 +111,17 @@ async def execute_workflow(workflow_id: uuid.UUID, db: AsyncSession = Depends(ge
 
 @router.post("/{workflow_id}/trigger")
 async def trigger_webhook(
-    workflow_id: uuid.UUID, request: Request, db: AsyncSession = Depends(get_db)
+    workflow_id: uuid.UUID,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    workspace_id: uuid.UUID = Depends(get_current_workspace_id),
 ):
     """Publiczny endpoint nasłuchujący na dane"""
-    result = await db.execute(select(Workflow).where(Workflow.id == workflow_id))
+    result = await db.execute(
+        select(Workflow).where(
+            Workflow.id == workflow_id, Workflow.workspace_id == workspace_id
+        )
+    )
     workflow = result.scalar_one_or_none()
 
     if not workflow:
@@ -94,8 +134,14 @@ async def trigger_webhook(
     except Exception:
         payload = {}
 
-    state_manager = StateManager(db)
-    execution = await state_manager.initialize_execution(workflow_id)
+    execution = WorkflowExecution(
+        workflow_id=workflow_id,
+        workspace_id=workspace_id,
+        status=ExecutionStatus.RUNNING,
+    )
+    db.add(execution)
+    await db.commit()
+    await db.refresh(execution)
 
     engine = ExecutionEngine(db, execution.id)
 
@@ -110,9 +156,17 @@ async def trigger_webhook(
 
 
 @router.put("/{workflow_id}/publish", response_model=WorkflowResponse)
-async def publish_workflow(workflow_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+async def publish_workflow(
+    workflow_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    workspace_id: uuid.UUID = Depends(get_current_workspace_id),
+):
     """Publikuje proces (zmienia is_active na True)"""
-    result = await db.execute(select(Workflow).where(Workflow.id == workflow_id))
+    result = await db.execute(
+        select(Workflow).where(
+            Workflow.id == workflow_id, Workflow.workspace_id == workspace_id
+        )
+    )
     workflow = result.scalar_one_or_none()
 
     if not workflow:
@@ -130,9 +184,17 @@ async def publish_workflow(workflow_id: uuid.UUID, db: AsyncSession = Depends(ge
 
 
 @router.patch("/{workflow_id}/toggle", response_model=WorkflowResponse)
-async def toggle_workflow(workflow_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+async def toggle_workflow(
+    workflow_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    workspace_id: uuid.UUID = Depends(get_current_workspace_id),
+):
     """Zmienia status procesu (Stop/Wznów) poprzez przełączenie flagi is_active."""
-    result = await db.execute(select(Workflow).where(Workflow.id == workflow_id))
+    result = await db.execute(
+        select(Workflow).where(
+            Workflow.id == workflow_id, Workflow.workspace_id == workspace_id
+        )
+    )
     workflow = result.scalar_one_or_none()
 
     if not workflow:
@@ -146,9 +208,17 @@ async def toggle_workflow(workflow_id: uuid.UUID, db: AsyncSession = Depends(get
     return workflow
 
 @router.delete("/{workflow_id}")
-async def delete_workflow(workflow_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+async def delete_workflow(
+    workflow_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    workspace_id: uuid.UUID = Depends(get_current_workspace_id),
+):
     """Usuwa proces z bazy danych"""
-    result = await db.execute(select(Workflow).where(Workflow.id == workflow_id))
+    result = await db.execute(
+        select(Workflow).where(
+            Workflow.id == workflow_id, Workflow.workspace_id == workspace_id
+        )
+    )
     workflow = result.scalar_one_or_none()
 
     if not workflow:
@@ -162,7 +232,11 @@ async def delete_workflow(workflow_id: uuid.UUID, db: AsyncSession = Depends(get
 
 
 @router.get("/stats")
-async def get_workflows_stats(days: int = 7, db: AsyncSession = Depends(get_db)):
+async def get_workflows_stats(
+    days: int = 7,
+    db: AsyncSession = Depends(get_db),
+    workspace_id: uuid.UUID = Depends(get_current_workspace_id),
+):
     """Proste statystyki wykonań z ostatnich dni (pod analitykę)."""
     safe_days = max(1, min(int(days), 90))
 
@@ -181,6 +255,7 @@ async def get_workflows_stats(days: int = 7, db: AsyncSession = Depends(get_db))
             func.sum(case((WorkflowExecution.status == ExecutionStatus.RUNNING, 1), else_=0)).label("running"),
         )
         .where(WorkflowExecution.started_at >= func.now() - func.make_interval(days=safe_days))
+        .where(WorkflowExecution.workspace_id == workspace_id)
         .group_by(day_bucket)
         .order_by(day_bucket.desc())
     )
@@ -205,12 +280,18 @@ async def get_workflows_stats(days: int = 7, db: AsyncSession = Depends(get_db))
 
 
 @router.get("/logs")
-async def get_workflows_logs(limit: int = 50, db: AsyncSession = Depends(get_db)):
+async def get_workflows_logs(
+    limit: int = 50,
+    db: AsyncSession = Depends(get_db),
+    workspace_id: uuid.UUID = Depends(get_current_workspace_id),
+):
     """Najnowsze zdarzenia z tabeli ExecutionStep (pod monitoring/analitykę)."""
     safe_limit = max(1, min(int(limit), 200))
 
     result = await db.execute(
         select(ExecutionStep)
+        .join(WorkflowExecution, ExecutionStep.execution_id == WorkflowExecution.id)
+        .where(WorkflowExecution.workspace_id == workspace_id)
         .order_by(ExecutionStep.started_at.desc())
         .limit(safe_limit)
     )
@@ -233,9 +314,17 @@ async def get_workflows_logs(limit: int = 50, db: AsyncSession = Depends(get_db)
     }
 
 @router.get("/nodes/jira/projects")
-async def fetch_jira_projects(db: AsyncSession = Depends(get_db)):
+async def fetch_jira_projects(
+    db: AsyncSession = Depends(get_db),
+    workspace_id: uuid.UUID = Depends(get_current_workspace_id),
+):
     """Pobieranie listy projektów z Jira poprzez dane wczytane z ustawień uytkownika."""
-    result = await db.execute(select(SystemSetting).where(SystemSetting.key == "jira_profile"))
+    result = await db.execute(
+        select(SystemSetting).where(
+            SystemSetting.key == "jira_profile",
+            SystemSetting.workspace_id == workspace_id,
+        )
+    )
     setting = result.scalar_one_or_none()
 
     if not setting or not setting.value:
@@ -253,19 +342,23 @@ async def fetch_jira_projects(db: AsyncSession = Depends(get_db)):
         return [{"id": p["id"], "key": p["key"], "name": p["name"]} for p in projects]
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
-from ..core.engine import ExecutionEngine
 
 @router.post("/{workflow_id}/resume")
-async def resume_workflow(workflow_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+async def resume_workflow(
+    workflow_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    workspace_id: uuid.UUID = Depends(get_current_workspace_id),
+):
     """Wznawia najnowszą wstrzymaną akcję dla danego procesu."""
     
     result = await db.execute(
         select(WorkflowExecution)
         .where(
             WorkflowExecution.workflow_id == workflow_id,
-            WorkflowExecution.status == ExecutionStatus.PAUSED
+            WorkflowExecution.status == ExecutionStatus.PAUSED,
+            WorkflowExecution.workspace_id == workspace_id,
         )
-        .order_by(WorkflowExecution.created_at.desc())
+        .order_by(WorkflowExecution.started_at.desc())
     )
     execution = result.scalars().first()
     
@@ -303,19 +396,36 @@ async def resume_workflow(workflow_id: uuid.UUID, db: AsyncSession = Depends(get
     execution.resume_at = None
     await db.commit()
 
-    workflow = await db.get(Workflow, workflow_id)
+    wf_result = await db.execute(
+        select(Workflow).where(
+            Workflow.id == workflow_id,
+            Workflow.workspace_id == workspace_id,
+        )
+    )
+    workflow = wf_result.scalar_one_or_none()
+    if not workflow:
+        raise HTTPException(status_code=404, detail="Nie znaleziono procesu o podanym ID")
     engine = ExecutionEngine(db, execution.id)
     asyncio.create_task(engine.run(workflow.graph_json))
 
     return {"status": "resumed", "message": "Proces pomyślnie wznowiony!"}
 
 @router.get("/{workflow_id}/executions/{execution_id}")
-async def get_execution_details(workflow_id: uuid.UUID, execution_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+async def get_execution_details(
+    workflow_id: uuid.UUID,
+    execution_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    workspace_id: uuid.UUID = Depends(get_current_workspace_id),
+):
     """Pobiera szczegóły konkretnej akcji pod widok i śledzenie"""
     stmt = (
         select(WorkflowExecution)
         .options(selectinload(WorkflowExecution.steps), selectinload(WorkflowExecution.workflow))
-        .where(WorkflowExecution.id == execution_id, WorkflowExecution.workflow_id == workflow_id)
+        .where(
+            WorkflowExecution.id == execution_id,
+            WorkflowExecution.workflow_id == workflow_id,
+            WorkflowExecution.workspace_id == workspace_id,
+        )
     )
 
     result = await db.execute(stmt)

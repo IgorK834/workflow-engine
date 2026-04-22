@@ -1,6 +1,7 @@
 export interface WorkflowNodeData {
   subtype: string;
   label: string;
+  description?: string;
   config: Record<string, unknown>;
 }
 

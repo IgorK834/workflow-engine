@@ -577,6 +577,17 @@ export default function WorkflowEditor({ onBack, workflowId }: WorkflowEditorPro
                   onChange={(e) => updateListItem(configKey, list, idx, 'key', e.target.value)}
                   disabled={isReadOnly}
                 />
+                <select
+                  className="w-1/4 text-xs p-2 border rounded disabled:opacity-60 disabled:bg-slate-50 disabled:cursor-not-allowed bg-white shadow-sm"
+                  value={item.type || 'string'}
+                  onChange={(e) => updateListItem(configKey, list, idx, 'type', e.target.value)}
+                  disabled={isReadOnly}
+                >
+                  <option value="string">String</option>
+                  <option value="int">Integer</option>
+                  <option value="bool">Boolean</option>
+                  <option value="json">JSON</option>
+                </select>
                 <input
                   type="text"
                   placeholder="Wartość"

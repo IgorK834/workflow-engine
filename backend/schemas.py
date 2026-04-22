@@ -18,6 +18,7 @@ class NodeData(BaseModel):
         ..., description="Konkretna akcja, np. 'webhook', 'slack_msg', if_else'"
     )
     label: str = Field(..., description="Nazwa wyświetlana w UI")
+    description: str | None = Field(None, description="Opcjonalny opis węzła")
     config: dict[str, Any] = Field(
         default_factory=dict,
         description="Parametry konfiguracyjne, np. adres URL, warunek logiczny, tokeny",

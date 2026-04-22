@@ -174,7 +174,12 @@ async def execute_http_request(config: dict[str, Any], input_data: dict[str, Any
                 json_body = {}
                 for k, v in body_config.items():
                     if k.strip():
-                        json_body[k.strip()] = inject_variables(str(v), input_data)
+                        if isinstance(v, (int, float, bool, dict, list)):
+                            json_body[k.strip()] = v
+                        elif isinstance(v, str):
+                            json_body[k.strip()] = inject_variables(v, input_data)
+                        else:
+                            json_body[k.strip()] = inject_variables(str(v), input_data)
             elif isinstance(body_config, list): # Legacy fallback dla typowanych pól w arrayach
                 json_body = {}
                 for b in body_config:

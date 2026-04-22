@@ -136,31 +136,31 @@ export default function ExecutionViewer({ workflowId, executionId, onClose }: Ex
               <div>
                 <span className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider">Status wykonania</span>
                 <div className="mt-1 flex items-center gap-2 bg-slate-50 p-2 rounded border border-border">
-                  {selectedStep.status === 'COMPLETED' && <CheckCircle className="w-4 h-4 text-green-500" />}
-                  {selectedStep.status === 'FAILED' && <AlertTriangle className="w-4 h-4 text-red-500" />}
-                  {selectedStep.status === 'PAUSED' && <PauseCircle className="w-4 h-4 text-amber-500" />}
-                  <span className="font-medium text-sm">{selectedStep.status}</span>
+                  {selectedStep?.status === 'COMPLETED' && <CheckCircle className="w-4 h-4 text-green-500" />}
+                  {selectedStep?.status === 'FAILED' && <AlertTriangle className="w-4 h-4 text-red-500" />}
+                  {selectedStep?.status === 'PAUSED' && <PauseCircle className="w-4 h-4 text-amber-500" />}
+                  <span className="font-medium text-sm">{selectedStep?.status}</span>
                 </div>
               </div>
 
-              {(selectedStep.started_at || selectedStep.finished_at) && (
+              {(selectedStep?.started_at || selectedStep?.finished_at) && (
                 <div>
                   <span className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider">Czas i Trwanie</span>
                   <div className="mt-1 text-sm text-foreground flex items-center gap-2 bg-slate-50 p-2 rounded border border-border">
                     <Clock className="w-4 h-4 text-muted-foreground" />
                     <div className="text-xs">
-                      {selectedStep.started_at && <div>Start: {new Date(selectedStep.started_at).toLocaleString('pl-PL')}</div>}
-                      {selectedStep.finished_at && <div>Koniec: {new Date(selectedStep.finished_at).toLocaleString('pl-PL')}</div>}
+                      {selectedStep?.started_at && <div>Start: {new Date(selectedStep?.started_at).toLocaleString('pl-PL')}</div>}
+                      {selectedStep?.finished_at && <div>Koniec: {new Date(selectedStep?.finished_at).toLocaleString('pl-PL')}</div>}
                     </div>
                   </div>
                 </div>
               )}
 
-              {selectedStep.error_message && (
+              {selectedStep?.error_message && (
                 <div>
                   <span className="text-[10px] text-red-500 font-bold uppercase tracking-wider">Komunikat Błędu</span>
                   <div className="mt-1 bg-red-50 text-red-700 p-3 rounded-lg text-sm border border-red-200">
-                    {selectedStep.error_message}
+                    {selectedStep?.error_message}
                   </div>
                 </div>
               )}
@@ -168,14 +168,14 @@ export default function ExecutionViewer({ workflowId, executionId, onClose }: Ex
               <div>
                 <span className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider">Wejście (Input Data)</span>
                 <pre className="mt-1 bg-slate-900 text-slate-50 p-3 rounded-lg text-xs overflow-x-auto border border-slate-700 shadow-inner">
-                  <code>{selectedStep.input_data ? JSON.stringify(selectedStep.input_data, null, 2) : 'Brak danych wejściowych (lub węzeł nie został wywołany)'}</code>
+                  <code>{selectedStep?.status === 'NOT_RUN' ? '{}' : selectedStep?.input_data ? JSON.stringify(selectedStep.input_data, null, 2) : 'Brak danych wejściowych (lub węzeł nie został wywołany)'}</code>
                 </pre>
               </div>
 
               <div>
                 <span className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider">Wyjście (Output Data)</span>
                 <pre className="mt-1 bg-slate-900 text-slate-50 p-3 rounded-lg text-xs overflow-x-auto border border-slate-700 shadow-inner">
-                  <code>{selectedStep.output_data ? JSON.stringify(selectedStep.output_data, null, 2) : 'Brak danych wyjściowych'}</code>
+                  <code>{selectedStep?.status === 'NOT_RUN' ? '{}' : selectedStep?.output_data ? JSON.stringify(selectedStep.output_data, null, 2) : 'Brak danych wyjściowych'}</code>
                 </pre>
               </div>
             </div>

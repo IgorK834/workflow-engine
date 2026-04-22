@@ -47,6 +47,7 @@ import LogicNode from '../nodes/LogicNode';
 import ActionNode from '../nodes/ActionNode';
 import { createWorkflow, executeWorkflowTest, publishWorkflow } from '../api/workflows';
 import { useWorkflows } from '../hooks/useWorkflows';
+import { listCollections, type CollectionSummary } from '../api/collections';
 
 const nodeTypes = {
   trigger: TriggerNode,
@@ -383,10 +384,24 @@ const inferNodeOutputSchema = (node: Node): OutputSchema => {
         raw_body: 'string',
       };
     case 'db_insert':
+    case 'collection_insert':
       return {
-        table: 'string',
-        inserted_id: 'string',
-        affected_rows: 'number',
+        collection_id: 'string',
+        record_id: 'string',
+        status: 'string',
+      };
+    case 'collection_update':
+      return {
+        collection_id: 'string',
+        record_id: 'string',
+        status: 'string',
+      };
+    case 'collection_find':
+      return {
+        collection_id: 'string',
+        count: 'number',
+        items: 'array',
+        payload: 'object',
       };
     case 'data_mapper': {
       const mappings = Array.isArray(config.mappings)
@@ -897,7 +912,9 @@ const nodeBlocks = [
       { type: 'action', subtype: 'slack_msg', label: 'Wyślij na Slack', icon: MessageSquare, description: 'Powiadomienie' },
       { type: 'action', subtype: 'send_email', label: 'Wyślij Email', icon: Mail, description: 'Wiadomość z systemu' },
       { type: 'action', subtype: 'http_request', label: 'Zewnętrzny Webhook API', icon: Globe, description: 'Request HTTP (GET/POST)' },
-      { type: 'action', subtype: 'db_insert', label: 'Zapisz do Bazy', icon: Database, description: 'INSERT/UPDATE' },
+      { type: 'action', subtype: 'collection_insert', label: 'Kolekcja: Dodaj rekord', icon: Database, description: 'Wstawia nowy rekord do kolekcji' },
+      { type: 'action', subtype: 'collection_update', label: 'Kolekcja: Aktualizuj rekord', icon: Database, description: 'Aktualizuje rekord wg warunku' },
+      { type: 'action', subtype: 'collection_find', label: 'Kolekcja: Wyszukaj rekordy', icon: Database, description: 'Pobiera rekordy i przekazuje dalej' },
       { type: 'action', subtype: 'data_mapper', label: 'Mapowanie Danych', icon: FileJson, description: 'Transformacja JSON' },
       { type: 'action', subtype: 'jira_create_ticket', label: 'Jira: Utwórz Ticket', icon: Trello, description: 'Tworzy zgłoszenie w JIRA' },
       { type: 'action', subtype: 'gemini_custom', label: 'Gemini: Własny Prompt', icon: Sparkles, description: 'Napisz dowolne polecenie do AI' },
@@ -916,6 +933,7 @@ export default function WorkflowEditor({ onBack, workflowId }: WorkflowEditorPro
   const [savedWorkflowId, setSavedWorkflowId] = useState<string | null>(null)
   const [loadedWorkflowName, setLoadedWorkflowName] = useState<string>('Nowy Workflow');
   const [isReadOnly, setIsReadOnly] = useState<boolean>(false);
+  const [collections, setCollections] = useState<CollectionSummary[]>([]);
 
   const selectedNode = useMemo(
     () => nodes.find((n) => n.id === selectedNodeId) || null,
@@ -1212,22 +1230,137 @@ export default function WorkflowEditor({ onBack, workflowId }: WorkflowEditorPro
         );
 
       case 'db_insert':
+      case 'collection_insert':
+      case 'collection_update':
+      case 'collection_find': {
+        const mappings = Array.isArray(config.mappings) ? config.mappings : [];
+        const matchRules = Array.isArray(config.match_rules) ? config.match_rules : [];
+        const isFind = subtype === 'collection_find';
+        const isUpdate = subtype === 'collection_update';
+        const supportsMapping = subtype === 'db_insert' || subtype === 'collection_insert' || subtype === 'collection_update';
+
+        const addMapping = () => updateNodeConfig('mappings', [...mappings, { id: Date.now(), target: '', source: '' }]);
+        const updateMapping = (idx: number, field: 'target' | 'source', val: string) => {
+          const next = [...mappings];
+          next[idx] = { ...next[idx], [field]: val };
+          updateNodeConfig('mappings', next);
+        };
+        const removeMapping = (idx: number) => updateNodeConfig('mappings', mappings.filter((_: any, i: number) => i !== idx));
+
+        const addMatchRule = () => updateNodeConfig('match_rules', [...matchRules, { id: Date.now(), field: '', value: '' }]);
+        const updateMatchRule = (idx: number, field: 'field' | 'value', val: string) => {
+          const next = [...matchRules];
+          next[idx] = { ...next[idx], [field]: val };
+          updateNodeConfig('match_rules', next);
+        };
+        const removeMatchRule = (idx: number) => updateNodeConfig('match_rules', matchRules.filter((_: any, i: number) => i !== idx));
+
         return (
           <div className="space-y-4">
             <div className="space-y-2">
-              <label className="text-sm font-medium text-foreground">Gdzie zapisać dane?</label>
+              <label className="text-sm font-medium text-foreground">Kolekcja docelowa</label>
               <select
                 className="w-full text-sm border-border rounded-md shadow-sm border p-2.5 focus:outline-none focus:ring-2 focus:ring-primary/50 bg-white"
-                value={config.table || 'users'}
-                onChange={(e) => updateNodeConfig('table', e.target.value)}
+                value={config.collection_id || ''}
+                onChange={(e) => updateNodeConfig('collection_id', e.target.value)}
               >
-                <option value="users">Tabela Użytkowników</option>
-                <option value="logs">Dziennik zdarzeń (Logs)</option>
-                <option value="orders">Baza Zamówień</option>
+                <option value="">-- Wybierz kolekcję --</option>
+                {collections.map((collection) => (
+                  <option key={collection.id} value={collection.id}>
+                    {collection.name}
+                  </option>
+                ))}
               </select>
+              {collections.length === 0 && (
+                <p className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">
+                  Brak kolekcji. Utwórz je w zakładce <b>Kolekcje</b>.
+                </p>
+              )}
             </div>
+
+            {(isUpdate || isFind) && (
+              <div className="space-y-2 border-t border-border pt-4">
+                <label className="text-sm font-medium text-foreground">Warunki wyszukiwania rekordu</label>
+                {matchRules.map((rule: any, idx: number) => (
+                  <div key={rule.id || idx} className="flex gap-2 items-center">
+                    <input
+                      type="text"
+                      placeholder="Pole (np. email)"
+                      className="w-1/2 text-xs p-2 border rounded bg-white"
+                      value={rule.field || ''}
+                      onChange={(e) => updateMatchRule(idx, 'field', e.target.value)}
+                    />
+                    <VariablePickerInput
+                      placeholder="Wartość dopasowania"
+                      className="w-full text-xs p-2 border rounded bg-white"
+                      value={rule.value || ''}
+                      onChange={(value) => updateMatchRule(idx, 'value', value)}
+                      availableSchemas={availableSchemas}
+                      disabled={isReadOnly}
+                    />
+                    <button onClick={() => removeMatchRule(idx)} className="text-red-500 hover:text-red-700 p-1">
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+                <button
+                  onClick={addMatchRule}
+                  className="text-xs px-3 py-1.5 rounded border border-border bg-white hover:bg-muted"
+                >
+                  + Dodaj warunek
+                </button>
+                {isFind && (
+                  <div className="space-y-2">
+                    <label className="text-xs font-medium text-foreground">Limit wyników</label>
+                    <input
+                      type="number"
+                      min="1"
+                      max="100"
+                      className="w-full text-xs p-2 border rounded bg-white"
+                      value={config.limit || 10}
+                      onChange={(e) => updateNodeConfig('limit', Number(e.target.value))}
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+
+            {supportsMapping && (
+              <div className="space-y-2 border-t border-border pt-4">
+                <label className="text-sm font-medium text-foreground">Mapowanie danych do rekordu</label>
+                {mappings.map((mapping: any, idx: number) => (
+                  <div key={mapping.id || idx} className="flex gap-2 items-center">
+                    <input
+                      type="text"
+                      placeholder="Pole docelowe (np. customer_name)"
+                      className="w-1/2 text-xs p-2 border rounded bg-white"
+                      value={mapping.target || ''}
+                      onChange={(e) => updateMapping(idx, 'target', e.target.value)}
+                    />
+                    <VariablePickerInput
+                      placeholder="Źródło (np. {{node_1.body.name}})"
+                      className="w-full text-xs p-2 border rounded bg-white"
+                      value={mapping.source || ''}
+                      onChange={(value) => updateMapping(idx, 'source', value)}
+                      availableSchemas={availableSchemas}
+                      disabled={isReadOnly}
+                    />
+                    <button onClick={() => removeMapping(idx)} className="text-red-500 hover:text-red-700 p-1">
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+                <button
+                  onClick={addMapping}
+                  className="text-xs px-3 py-1.5 rounded border border-border bg-white hover:bg-muted"
+                >
+                  + Dodaj mapowanie
+                </button>
+              </div>
+            )}
           </div>
         );
+      }
 
       // Formularz wysyłki e-mail
       case 'send_email':
@@ -1803,6 +1936,18 @@ export default function WorkflowEditor({ onBack, workflowId }: WorkflowEditorPro
         return <p className="text-sm text-muted-foreground text-center mt-8">Brak dodatkowych opcji konfiguracji dla tego klocka.</p>;
     }
   };
+
+  useEffect(() => {
+    const loadCollections = async () => {
+      try {
+        const data = await listCollections();
+        setCollections(data);
+      } catch (error) {
+        console.error('Błąd pobierania kolekcji:', error);
+      }
+    };
+    void loadCollections();
+  }, []);
 
   useEffect(() => {
     if (!workflowId) {

@@ -5,6 +5,65 @@ import uuid
 from datetime import datetime
 
 
+class WorkspaceRole(str, Enum):
+    ADMIN = "admin"
+    EDITOR = "editor"
+    VIEWER = "viewer"
+
+
+class WorkspaceBase(BaseModel):
+    name: str = Field(..., max_length=255)
+    slug: str = Field(..., max_length=255)
+
+
+class WorkspaceCreate(WorkspaceBase):
+    pass
+
+
+class WorkspaceResponse(WorkspaceBase):
+    id: uuid.UUID
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class UserBase(BaseModel):
+    email: str = Field(..., max_length=255)
+    full_name: str | None = Field(None, max_length=255)
+    is_active: bool = True
+
+
+class UserCreate(UserBase):
+    pass
+
+
+class UserResponse(UserBase):
+    id: uuid.UUID
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class WorkspaceMemberBase(BaseModel):
+    workspace_id: uuid.UUID
+    user_id: uuid.UUID
+    role: WorkspaceRole = WorkspaceRole.VIEWER
+
+
+class WorkspaceMemberCreate(WorkspaceMemberBase):
+    pass
+
+
+class WorkspaceMemberResponse(WorkspaceMemberBase):
+    id: uuid.UUID
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 # Typy węzłów
 class NodeType(str, Enum):
     TRIGGER = "trigger"
@@ -61,6 +120,7 @@ class WorkflowCreate(BaseModel):
 # Schemat zwracany przez API
 class WorkflowResponse(WorkflowCreate):
     id: uuid.UUID
+    workspace_id: uuid.UUID
     is_active: bool
     created_at: datetime
     updated_at: datetime
@@ -72,6 +132,7 @@ class WorkflowResponse(WorkflowCreate):
 # Schemat zwracany przez API dla historii uruchomień
 class WorkflowExecutiveResponse(BaseModel):
     id: uuid.UUID
+    workspace_id: uuid.UUID
     workflow_id: uuid.UUID
     status: str
     started_at: datetime
@@ -89,6 +150,7 @@ class SystemSettingCreate(BaseModel):
 # Schemat zapisu konfiguracji klucza API
 class SystemSettingResponse(SystemSettingCreate):
     id: uuid.UUID
+    workspace_id: uuid.UUID
     created_at: datetime
     updated_at: datetime
 

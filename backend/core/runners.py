@@ -79,33 +79,191 @@ async def execute_slack_msg(config: dict[str, Any], input_data: dict[str, Any]) 
 
 
 async def execute_if_else(config: dict[str, Any], input_data: dict[str, Any]) -> dict[str, Any]:
-    variable = config.get("variable")
-    operator = config.get("operator")
-    target_value = config.get("value")
-    actual_value = config.get("variable")
+    def _resolve_path(data: Any, path: str) -> Any:
+        if not isinstance(path, str) or not path.strip():
+            return None
 
-    result = False
-    try:
+        normalized_path = path.strip()
+        m = re.fullmatch(r"\{\{\s*([a-zA-Z0-9_.-]+)\s*\}\}", normalized_path)
+        if m:
+            normalized_path = m.group(1)
+
+        if isinstance(data, dict) and normalized_path in data:
+            return data.get(normalized_path)
+
+        current = data
+        for part in normalized_path.split("."):
+            if isinstance(current, dict):
+                current = current.get(part)
+            elif isinstance(current, list) and part.isdigit():
+                idx = int(part)
+                current = current[idx] if 0 <= idx < len(current) else None
+            else:
+                return None
+            if current is None:
+                return None
+        return current
+
+    def _resolve_runtime_value(value: Any) -> Any:
+        if not isinstance(value, str):
+            return value
+        m = re.fullmatch(r"\{\{\s*([a-zA-Z0-9_.-]+)\s*\}\}", value.strip())
+        if not m:
+            return value
+        resolved = _resolve_path(input_data, m.group(1))
+        return resolved
+
+    def _to_number(value: Any) -> float:
+        if isinstance(value, bool):
+            raise ValueError("bool nie jest liczbą w tym kontekście")
+        if isinstance(value, (int, float)):
+            return float(value)
+        if isinstance(value, str):
+            return float(value.strip().replace(",", "."))
+        raise ValueError("Nie można rzutować na number")
+
+    def _to_bool(value: Any) -> bool:
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, (int, float)):
+            return bool(value)
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            if normalized in {"true", "1", "yes", "y", "t"}:
+                return True
+            if normalized in {"false", "0", "no", "n", "f"}:
+                return False
+        raise ValueError("Nie można rzutować na boolean")
+
+    def _to_datetime(value: Any) -> datetime:
+        if isinstance(value, datetime):
+            parsed = value
+        elif isinstance(value, str):
+            normalized = value.strip()
+            if normalized.endswith("Z"):
+                normalized = normalized[:-1] + "+00:00"
+            parsed = datetime.fromisoformat(normalized)
+        else:
+            raise ValueError("Nie można rzutować na datetime")
+
+        if parsed.tzinfo is None:
+            return parsed.replace(tzinfo=timezone.utc)
+        return parsed
+
+    def _is_empty(value: Any) -> bool:
+        if value is None:
+            return True
+        if isinstance(value, str):
+            return value.strip() == ""
+        if isinstance(value, (list, dict, tuple, set)):
+            return len(value) == 0
+        return False
+
+    def _coerce_pair(actual: Any, target: Any, value_type: str) -> tuple[Any, Any]:
+        if value_type == "string":
+            return str(actual), str(target)
+        if value_type == "number":
+            return _to_number(actual), _to_number(target)
+        if value_type == "boolean":
+            return _to_bool(actual), _to_bool(target)
+        if value_type == "date":
+            return _to_datetime(actual), _to_datetime(target)
+
+        # auto
+        for caster in (_to_datetime, _to_number, _to_bool):
+            try:
+                return caster(actual), caster(target)
+            except (ValueError, TypeError):
+                continue
+        return actual, target
+
+    def _evaluate_rule(rule: dict[str, Any]) -> bool:
+        field = rule.get("field", "")
+        operator = str(rule.get("operator", "equals"))
+        value_type = str(rule.get("value_type", "auto")).lower()
+        raw_target_value = _resolve_runtime_value(rule.get("value"))
+        actual_value = _resolve_path(input_data, str(field))
+
+        if operator == "is_empty":
+            return _is_empty(actual_value)
+        if operator == "is_not_empty":
+            return not _is_empty(actual_value)
+
+        coerced_actual, coerced_target = _coerce_pair(actual_value, raw_target_value, value_type)
+
         if operator == "equals":
-            result = str(actual_value) == str(target_value)
-        elif operator == "greater":
-            result = float(actual_value) > float(target_value)
-        elif operator == "less":
-            result = float(actual_value) < float(target_value)
-        elif operator == "contains":
-            result = str(target_value).lower() in str(actual_value).lower()
-    except (ValueError, TypeError) as e:
-        logger.error(f"[IF/ELSE] Błąd warunku! {e}")
-        result = False
+            return coerced_actual == coerced_target
+        if operator == "not_equals":
+            return coerced_actual != coerced_target
+        if operator == "greater":
+            return coerced_actual > coerced_target
+        if operator == "greater_or_equal":
+            return coerced_actual >= coerced_target
+        if operator == "less":
+            return coerced_actual < coerced_target
+        if operator == "less_or_equal":
+            return coerced_actual <= coerced_target
+        if operator == "contains":
+            if isinstance(coerced_actual, (list, tuple, set)):
+                return coerced_target in coerced_actual
+            if isinstance(coerced_actual, dict):
+                return str(coerced_target) in coerced_actual
+            return str(coerced_target).lower() in str(coerced_actual).lower()
+        if operator == "not_contains":
+            if isinstance(coerced_actual, (list, tuple, set)):
+                return coerced_target not in coerced_actual
+            if isinstance(coerced_actual, dict):
+                return str(coerced_target) not in coerced_actual
+            return str(coerced_target).lower() not in str(coerced_actual).lower()
+        if operator == "starts_with":
+            return str(coerced_actual).lower().startswith(str(coerced_target).lower())
+        if operator == "ends_with":
+            return str(coerced_actual).lower().endswith(str(coerced_target).lower())
 
-    logger.info(
-        f"[IF/ELSE] Sprawdzam: {actual_value} {operator} {target_value} -> Wynik: {result}"
-    )
+        logger.warning(f"[IF/ELSE] Nieobsługiwany operator '{operator}'")
+        return False
+
+    def _evaluate_ast(node: Any) -> bool:
+        if not isinstance(node, dict):
+            return False
+
+        rules = node.get("rules")
+        if isinstance(rules, list):
+            mode = str(node.get("condition", "AND")).upper()
+            outcomes = [_evaluate_ast(child) for child in rules]
+            if not outcomes:
+                return False
+            return all(outcomes) if mode == "AND" else any(outcomes)
+
+        try:
+            return _evaluate_rule(node)
+        except Exception as e:
+            logger.error(f"[IF/ELSE] Błąd ewaluacji reguły: {e}")
+            return False
+
+    legacy_variable = config.get("variable")
+    legacy_operator = config.get("operator", "equals")
+    legacy_value = config.get("value")
+    legacy_tree = {
+        "condition": "AND",
+        "rules": [
+            {
+                "field": legacy_variable,
+                "operator": legacy_operator,
+                "value": legacy_value,
+                "value_type": "auto",
+            }
+        ],
+    }
+
+    tree = config.get("rule_tree") or config.get("ast") or legacy_tree
+    result = _evaluate_ast(tree)
+
+    logger.info(f"[IF/ELSE] Wynik ewaluacji AST: {result}")
 
     return {
         "condition_met": result,
-        "evaluated_variable": variable,
-        "actual_value": actual_value,
+        "evaluation_mode": "ast",
     }
 
 

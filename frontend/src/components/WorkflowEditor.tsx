@@ -33,6 +33,10 @@ import {
   CheckCircle,
   Sparkles,
   Brain,
+  Zap,
+  Variable,
+  Braces,
+  ChevronRight,
 } from 'lucide-react';
 import TriggerNode from '../nodes/TriggerNode';
 import LogicNode from '../nodes/LogicNode';
@@ -52,6 +56,402 @@ const getId = () => `node_${id++}`;
 interface WorkflowEditorProps {
   onBack: () => void;
   workflowId?: string | null;
+}
+
+type SchemaLeafType = 'string' | 'number' | 'boolean' | 'array' | 'object' | 'unknown';
+interface OutputSchema {
+  [key: string]: SchemaLeafType | OutputSchema;
+}
+
+interface AvailableNodeSchema {
+  nodeId: string;
+  nodeLabel: string;
+  schema: OutputSchema;
+}
+
+interface VariablePickerInputProps {
+  value: string | number | null | undefined;
+  onChange: (value: string) => void;
+  placeholder?: string;
+  className?: string;
+  disabled?: boolean;
+  multiline?: boolean;
+  rows?: number;
+  availableSchemas: AvailableNodeSchema[];
+}
+
+const TEMPLATE_VARIABLE_REGEX = /\{\{\s*([a-zA-Z0-9_.-]+)\s*\}\}/g;
+
+const parseTemplateSegments = (value: string) => {
+  const segments: Array<{ type: 'text' | 'variable'; value: string }> = [];
+  let lastIndex = 0;
+  let match = TEMPLATE_VARIABLE_REGEX.exec(value);
+
+  while (match) {
+    if (match.index > lastIndex) {
+      segments.push({ type: 'text', value: value.slice(lastIndex, match.index) });
+    }
+    segments.push({ type: 'variable', value: match[1] });
+    lastIndex = match.index + match[0].length;
+    match = TEMPLATE_VARIABLE_REGEX.exec(value);
+  }
+
+  if (lastIndex < value.length) {
+    segments.push({ type: 'text', value: value.slice(lastIndex) });
+  }
+
+  TEMPLATE_VARIABLE_REGEX.lastIndex = 0;
+  return segments;
+};
+
+const isSchemaObject = (value: SchemaLeafType | OutputSchema): value is OutputSchema =>
+  typeof value === 'object' && value !== null && !Array.isArray(value);
+
+const buildSchemaFromDotPaths = (paths: string[]): OutputSchema => {
+  const result: OutputSchema = {};
+
+  paths
+    .map((path) => path.trim())
+    .filter(Boolean)
+    .forEach((path) => {
+      const keys = path.split('.').map((k) => k.trim()).filter(Boolean);
+      if (!keys.length) return;
+
+      let current: OutputSchema = result;
+      keys.forEach((key, index) => {
+        const isLast = index === keys.length - 1;
+        const existing = current[key];
+        if (isLast) {
+          current[key] = isSchemaObject(existing ?? 'unknown') ? existing : 'unknown';
+          return;
+        }
+        if (!isSchemaObject(existing ?? 'unknown')) {
+          current[key] = {};
+        }
+        current = current[key] as OutputSchema;
+      });
+    });
+
+  return result;
+};
+
+const inferNodeOutputSchema = (node: Node): OutputSchema => {
+  const subtype = String(node.data?.subtype || '');
+  const config = (node.data?.config || {}) as Record<string, unknown>;
+
+  switch (subtype) {
+    case 'webhook':
+      return {
+        id: 'string',
+        method: 'string',
+        headers: 'object',
+        query: 'object',
+        body: 'object',
+        received_at: 'string',
+      };
+    case 'receive_email':
+      return {
+        message_id: 'string',
+        from: 'string',
+        to: 'string',
+        subject: 'string',
+        body: 'string',
+        html_body: 'string',
+        received_at: 'string',
+        attachments: 'array',
+      };
+    case 'schedule':
+      return {
+        tick_at: 'string',
+        cron_expression: 'string',
+        timezone: 'string',
+      };
+    case 'if_else':
+      return {
+        matched: 'boolean',
+        evaluated_variable: 'string',
+        compared_value: 'unknown',
+        input: 'object',
+      };
+    case 'switch':
+      return {
+        matched_case: 'string',
+        input: 'object',
+      };
+    case 'delay':
+      return {
+        resumed_at: 'string',
+        wait_value: 'number',
+        wait_unit: 'string',
+        input: 'object',
+      };
+    case 'json_transform': {
+      const keys = String(config.keys || '')
+        .split(',')
+        .map((k) => k.trim())
+        .filter(Boolean);
+      return {
+        ...(keys.length ? buildSchemaFromDotPaths(keys) : {}),
+        _meta: {
+          selected_keys: 'string',
+        },
+      };
+    }
+    case 'for_each':
+      return {
+        item: 'object',
+        index: 'number',
+        total: 'number',
+      };
+    case 'slack_msg':
+      return {
+        channel: 'string',
+        message_ts: 'string',
+        status: 'string',
+      };
+    case 'send_email':
+      return {
+        recipient: 'string',
+        subject: 'string',
+        status: 'string',
+        sent_at: 'string',
+      };
+    case 'http_request':
+      return {
+        status_code: 'number',
+        headers: 'object',
+        body: 'object',
+        raw_body: 'string',
+      };
+    case 'db_insert':
+      return {
+        table: 'string',
+        inserted_id: 'string',
+        affected_rows: 'number',
+      };
+    case 'data_mapper': {
+      const mappings = Array.isArray(config.mappings)
+        ? (config.mappings as Array<Record<string, unknown>>)
+        : [];
+      const targets = mappings
+        .map((m) => String(m.target || '').trim())
+        .filter(Boolean);
+      return {
+        ...(targets.length ? buildSchemaFromDotPaths(targets) : {}),
+        _meta: {
+          mappings_count: 'number',
+        },
+      };
+    }
+    case 'jira_create_ticket':
+      return {
+        id: 'string',
+        key: 'string',
+        url: 'string',
+        status: 'string',
+      };
+    case 'gemini_custom':
+    case 'gemini_template':
+      return {
+        output_text: 'string',
+        model: 'string',
+        usage: {
+          input_tokens: 'number',
+          output_tokens: 'number',
+        },
+      };
+    case 'manual_approval':
+      return {
+        approved: 'boolean',
+        approver: 'string',
+        decided_at: 'string',
+      };
+    default:
+      return {
+        result: 'unknown',
+      };
+  }
+};
+
+const getAvailableSchemasForNode = (
+  selectedNodeId: string | null,
+  nodes: Node[],
+  edges: Edge[]
+): AvailableNodeSchema[] => {
+  if (!selectedNodeId) return [];
+
+  const incomingByTarget = new Map<string, string[]>();
+  edges.forEach((edge) => {
+    const current = incomingByTarget.get(edge.target) || [];
+    current.push(edge.source);
+    incomingByTarget.set(edge.target, current);
+  });
+
+  const visited = new Set<string>([selectedNodeId]);
+  const queue: string[] = [selectedNodeId];
+  const upstreamNodeIds: string[] = [];
+
+  while (queue.length) {
+    const targetId = queue.shift();
+    if (!targetId) continue;
+    const previousNodeIds = incomingByTarget.get(targetId) || [];
+
+    previousNodeIds.forEach((sourceId) => {
+      if (visited.has(sourceId)) return;
+      visited.add(sourceId);
+      upstreamNodeIds.push(sourceId);
+      queue.push(sourceId);
+    });
+  }
+
+  return upstreamNodeIds
+    .map((nodeId) => nodes.find((node) => node.id === nodeId))
+    .filter((node): node is Node => Boolean(node))
+    .map((node) => ({
+      nodeId: node.id,
+      nodeLabel: String(node.data?.label || node.id),
+      schema: inferNodeOutputSchema(node),
+    }));
+};
+
+function VariablePickerInput({
+  value,
+  onChange,
+  placeholder,
+  className,
+  disabled,
+  multiline,
+  rows = 4,
+  availableSchemas,
+}: VariablePickerInputProps) {
+  const [isOpen, setIsOpen] = useState(false);
+  const normalizedValue = typeof value === 'string' ? value : value == null ? '' : String(value);
+
+  const insertVariable = (variablePath: string) => {
+    const token = `{{${variablePath}}}`;
+    const shouldAddSpace = Boolean(normalizedValue && !normalizedValue.endsWith(' '));
+    onChange(`${normalizedValue}${shouldAddSpace ? ' ' : ''}${token}`);
+    setIsOpen(false);
+  };
+
+  const renderSchemaTree = (schema: OutputSchema, nodeId: string, parentPath = '') => {
+    return Object.entries(schema).map(([key, schemaValue]) => {
+      const path = parentPath ? `${parentPath}.${key}` : key;
+      const variablePath = `${nodeId}.${path}`;
+
+      if (isSchemaObject(schemaValue)) {
+        return (
+          <details key={variablePath} className="group">
+            <summary className="cursor-pointer list-none flex items-center gap-1.5 text-xs text-foreground/90 hover:text-foreground py-1">
+              <ChevronRight className="w-3 h-3 text-muted-foreground transition-transform group-open:rotate-90" />
+              <span className="font-medium">{key}</span>
+            </summary>
+            <div className="ml-4 border-l border-border pl-2">{renderSchemaTree(schemaValue, nodeId, path)}</div>
+          </details>
+        );
+      }
+
+      return (
+        <button
+          key={variablePath}
+          type="button"
+          onClick={() => insertVariable(variablePath)}
+          className="w-full text-left flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-md text-xs hover:bg-muted transition-colors"
+        >
+          <span className="flex items-center gap-1.5 truncate">
+            <Variable className="w-3 h-3 text-primary shrink-0" />
+            <span className="truncate">{key}</span>
+          </span>
+          <span className="text-[10px] uppercase tracking-wide text-muted-foreground">{schemaValue}</span>
+        </button>
+      );
+    });
+  };
+
+  const segments = parseTemplateSegments(normalizedValue);
+  const hasVariables = segments.some((segment) => segment.type === 'variable');
+
+  return (
+    <div className="space-y-2">
+      <div className="relative">
+        {multiline ? (
+          <textarea
+            placeholder={placeholder}
+            rows={rows}
+            className={`${className || ''} pr-10`}
+            value={normalizedValue}
+            onChange={(e) => onChange(e.target.value)}
+            disabled={disabled}
+          />
+        ) : (
+          <input
+            type="text"
+            placeholder={placeholder}
+            className={`${className || ''} pr-10`}
+            value={normalizedValue}
+            onChange={(e) => onChange(e.target.value)}
+            disabled={disabled}
+          />
+        )}
+
+        <button
+          type="button"
+          onClick={() => setIsOpen((open) => !open)}
+          disabled={disabled}
+          className="absolute right-2 top-2 p-1.5 rounded-md border border-border bg-white hover:bg-muted transition-colors disabled:opacity-50"
+          title="Wstaw zmienną"
+        >
+          <Zap className="w-3.5 h-3.5 text-amber-500" />
+        </button>
+
+        {isOpen && (
+          <div className="absolute right-0 top-10 z-20 w-80 max-h-72 overflow-y-auto rounded-xl border border-border bg-white shadow-xl p-2">
+            <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold px-2 pb-2">
+              Zmienne z poprzednich kroków
+            </p>
+            {availableSchemas.length === 0 ? (
+              <div className="px-2 py-4 text-xs text-muted-foreground text-center">
+                Brak poprzednich klocków w tym miejscu grafu.
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {availableSchemas.map((nodeSchema) => (
+                  <details key={nodeSchema.nodeId} className="rounded-lg border border-border/70 bg-muted/20" open>
+                    <summary className="cursor-pointer list-none px-2.5 py-2 border-b border-border/60 text-xs font-semibold flex items-center gap-2">
+                      <Braces className="w-3.5 h-3.5 text-primary" />
+                      <span className="truncate">{nodeSchema.nodeLabel}</span>
+                      <span className="text-[10px] font-mono text-muted-foreground">({nodeSchema.nodeId})</span>
+                    </summary>
+                    <div className="p-1.5">{renderSchemaTree(nodeSchema.schema, nodeSchema.nodeId)}</div>
+                  </details>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {hasVariables && (
+        <div className="rounded-md border border-border bg-muted/20 px-2.5 py-2 text-xs flex flex-wrap items-center gap-1.5">
+          {segments.map((segment, index) =>
+            segment.type === 'variable' ? (
+              <span
+                key={`${segment.value}-${index}`}
+                className="inline-flex items-center gap-1 rounded-full bg-slate-200 text-slate-700 border border-slate-300 px-2 py-0.5"
+              >
+                <Variable className="w-3 h-3" />
+                {segment.value}
+              </span>
+            ) : (
+              <span key={`${segment.value}-${index}`} className="text-muted-foreground whitespace-pre-wrap">
+                {segment.value}
+              </span>
+            )
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
 const nodeBlocks = [
@@ -103,6 +503,11 @@ export default function WorkflowEditor({ onBack, workflowId }: WorkflowEditorPro
   const selectedNode = useMemo(
     () => nodes.find((n) => n.id === selectedNodeId) || null,
     [nodes, selectedNodeId]
+  );
+
+  const availableSchemas = useMemo(
+    () => getAvailableSchemasForNode(selectedNodeId, nodes, edges),
+    [selectedNodeId, nodes, edges]
   );
 
   const onConnect = useCallback(
@@ -352,22 +757,26 @@ export default function WorkflowEditor({ onBack, workflowId }: WorkflowEditorPro
           <div className="space-y-4">
             <div className="space-y-2">
               <label className="text-sm font-medium text-foreground">Gdzie wysłać powiadomienie?</label>
-              <input
-                type="text"
+              <VariablePickerInput
                 placeholder="np. #ogolny lub @janek"
                 className="w-full text-sm border-border rounded-md shadow-sm p-2.5 border focus:outline-none focus:ring-2 focus:ring-primary/50"
                 value={config.channel || ''}
-                onChange={(e) => updateNodeConfig('channel', e.target.value)}
+                onChange={(value) => updateNodeConfig('channel', value)}
+                availableSchemas={availableSchemas}
+                disabled={isReadOnly}
               />
             </div>
             <div className="space-y-2">
               <label className="text-sm font-medium text-foreground">Treść wiadomości</label>
-              <textarea
+              <VariablePickerInput
                 placeholder="Wpisz treść, np.: Mamy nowe zgłoszenie w systemie!"
                 rows={4}
+                multiline
                 className="w-full text-sm border-border rounded-md shadow-sm p-2.5 border focus:outline-none focus:ring-2 focus:ring-primary/50"
                 value={config.message || ''}
-                onChange={(e) => updateNodeConfig('message', e.target.value)}
+                onChange={(value) => updateNodeConfig('message', value)}
+                availableSchemas={availableSchemas}
+                disabled={isReadOnly}
               />
             </div>
           </div>
@@ -378,12 +787,13 @@ export default function WorkflowEditor({ onBack, workflowId }: WorkflowEditorPro
           <div className="space-y-5">
             <div className="space-y-2">
               <label className="text-sm font-medium text-foreground">Pole do sprawdzenia</label>
-              <input
-                type="text"
+              <VariablePickerInput
                 placeholder="np. kwota_zamowienia"
                 className="w-full text-sm border-border rounded-md shadow-sm p-2.5 border focus:outline-none focus:ring-2 focus:ring-primary/50"
                 value={config.variable || ''}
-                onChange={(e) => updateNodeConfig('variable', e.target.value)}
+                onChange={(value) => updateNodeConfig('variable', value)}
+                availableSchemas={availableSchemas}
+                disabled={isReadOnly}
               />
               <p className="text-[10px] text-muted-foreground">Nazwa parametru, który przyszedł z wyzwalacza.</p>
             </div>            
@@ -402,12 +812,13 @@ export default function WorkflowEditor({ onBack, workflowId }: WorkflowEditorPro
             </div>
             <div className="space-y-2">
               <label className="text-sm font-medium text-foreground">Wartość docelowa</label>
-              <input
-                type="text"
+              <VariablePickerInput
                 placeholder="np. 100 lub 'Aktywny'"
                 className="w-full text-sm border-border rounded-md shadow-sm p-2.5 border focus:outline-none focus:ring-2 focus:ring-primary/50"
                 value={config.value || ''}
-                onChange={(e) => updateNodeConfig('value', e.target.value)}
+                onChange={(value) => updateNodeConfig('value', value)}
+                availableSchemas={availableSchemas}
+                disabled={isReadOnly}
               />
             </div>
           </div>
@@ -437,32 +848,37 @@ export default function WorkflowEditor({ onBack, workflowId }: WorkflowEditorPro
           <div className="space-y-4">
             <div className="space-y-2">
               <label className="text-sm font-medium text-foreground">Odbiorca (Adres e-mail)</label>
-              <input
-                type="text"
+              <VariablePickerInput
                 placeholder="np. biuro@firma.pl"
                 className="w-full text-sm border-border rounded-md shadow-sm p-2.5 border focus:outline-none focus:ring-2 focus:ring-primary/50"
                 value={config.recipient || ''}
-                onChange={(e) => updateNodeConfig('recipient', e.target.value)}
+                onChange={(value) => updateNodeConfig('recipient', value)}
+                availableSchemas={availableSchemas}
+                disabled={isReadOnly}
               />
             </div>
             <div className="space-y-2">
               <label className="text-sm font-medium text-foreground">Temat wiadomości</label>
-              <input
-                type="text"
+              <VariablePickerInput
                 placeholder="np. Masz nowe zamówienie!"
                 className="w-full text-sm border-border rounded-md shadow-sm p-2.5 border focus:outline-none focus:ring-2 focus:ring-primary/50"
                 value={config.subject || ''}
-                onChange={(e) => updateNodeConfig('subject', e.target.value)}
+                onChange={(value) => updateNodeConfig('subject', value)}
+                availableSchemas={availableSchemas}
+                disabled={isReadOnly}
               />
             </div>
             <div className="space-y-2">
               <label className="text-sm font-medium text-foreground">Treść maila</label>
-              <textarea
+              <VariablePickerInput
                 placeholder="Wpisz treść wiadomości, którą chcesz wysłać..."
                 rows={5}
+                multiline
                 className="w-full text-sm border-border rounded-md shadow-sm p-2.5 border focus:outline-none focus:ring-2 focus:ring-primary/50"
                 value={config.body || ''}
-                onChange={(e) => updateNodeConfig('body', e.target.value)}
+                onChange={(value) => updateNodeConfig('body', value)}
+                availableSchemas={availableSchemas}
+                disabled={isReadOnly}
               />
             </div>
             <div className="p-3 mt-4 bg-muted/50 rounded-lg border border-border">
@@ -478,12 +894,15 @@ export default function WorkflowEditor({ onBack, workflowId }: WorkflowEditorPro
           <div className="space-y-4">
             <div className="space-y-2">
               <label className="text-sm font-medium text-foreground">Prompt dla Gemini</label>
-              <textarea
+              <VariablePickerInput
                 placeholder="Np. Podsumuj poniższy tekst i wypisz 3 najważniejsze wnioski..."
                 rows={5}
+                multiline
                 className="w-full text-sm border-border rounded-md p-2.5 border focus:outline-none focus:ring-2 focus:ring-primary/50 bg-white shadow-sm"
                 value={config.prompt || ''}
-                onChange={(e) => updateNodeConfig('prompt', e.target.value)}
+                onChange={(value) => updateNodeConfig('prompt', value)}
+                availableSchemas={availableSchemas}
+                disabled={isReadOnly}
               />
               <p className="text-xs text-muted-foreground">
                 Możesz używać zmiennych z poprzednich kroków, np. <code className="font-mono">{'{{email.body}}'}</code>.
@@ -511,12 +930,13 @@ export default function WorkflowEditor({ onBack, workflowId }: WorkflowEditorPro
 
             <div className="space-y-2">
               <label className="text-sm font-medium text-foreground">Zmienna wejściowa do przetworzenia</label>
-              <input
-                type="text"
+              <VariablePickerInput
                 placeholder="np. {{email.body}}"
                 className="w-full text-sm border-border rounded-md shadow-sm p-2.5 border focus:outline-none focus:ring-2 focus:ring-primary/50"
                 value={config.target_variable || ''}
-                onChange={(e) => updateNodeConfig('target_variable', e.target.value)}
+                onChange={(value) => updateNodeConfig('target_variable', value)}
+                availableSchemas={availableSchemas}
+                disabled={isReadOnly}
               />
               <p className="text-xs text-muted-foreground">
                 Wpisz wartość lub zmienną w formacie <code className="font-mono">{'{{zmienna}}'}</code>.
@@ -621,7 +1041,16 @@ export default function WorkflowEditor({ onBack, workflowId }: WorkflowEditorPro
                 <select className="w-1/3 text-sm border-border rounded-md border p-2 focus:outline-none bg-white shadow-sm" value={config.method || 'GET'} onChange={(e) => updateNodeConfig('method', e.target.value)}>
                   <option value="GET">GET</option><option value="POST">POST</option><option value="PUT">PUT</option><option value="DELETE">DELETE</option><option value="PATCH">PATCH</option>
                 </select>
-                <input type="text" placeholder="https://api.com/v1/..." className="w-2/3 text-sm border-border rounded-md border p-2 shadow-sm" value={config.url || ''} onChange={(e) => updateNodeConfig('url', e.target.value)} />
+                <div className="w-2/3">
+                  <VariablePickerInput
+                    placeholder="https://api.com/v1/..."
+                    className="w-full text-sm border-border rounded-md border p-2 shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+                    value={config.url || ''}
+                    onChange={(value) => updateNodeConfig('url', value)}
+                    availableSchemas={availableSchemas}
+                    disabled={isReadOnly}
+                  />
+                </div>
               </div>
             </div>
 
@@ -637,7 +1066,16 @@ export default function WorkflowEditor({ onBack, workflowId }: WorkflowEditorPro
                 </select>
                 
                 {config.body_type === 'raw' ? (
-                  <textarea placeholder='{"key": "{{variable}}"}' rows={4} className="w-full font-mono text-xs border rounded-md shadow-sm p-2 focus:outline-none focus:ring-1 focus:ring-primary/50" value={typeof config.body === 'string' ? config.body : ''} onChange={(e) => updateNodeConfig('body', e.target.value)} />
+                  <VariablePickerInput
+                    placeholder='{"key": "{{variable}}"}'
+                    rows={4}
+                    multiline
+                    className="w-full font-mono text-xs border rounded-md shadow-sm p-2 focus:outline-none focus:ring-1 focus:ring-primary/50"
+                    value={typeof config.body === 'string' ? config.body : ''}
+                    onChange={(value) => updateNodeConfig('body', value)}
+                    availableSchemas={availableSchemas}
+                    disabled={isReadOnly}
+                  />
                 ) : (
                   renderDynamicList("Pola Body (Klucz-Wartość)", "body_list", bodyList)
                 )}
@@ -684,12 +1122,13 @@ export default function WorkflowEditor({ onBack, workflowId }: WorkflowEditorPro
           <div className="space-y-4">
             <div className="space-y-2">
               <label className="text-sm font-medium text-foreground">Zostaw tylko wybrane pola z poprzedniego kroku</label>
-              <input
-                type="text"
+              <VariablePickerInput
                 placeholder="np. id_klienta, kwota, status"
                 className="w-full text-sm border-border rounded-md shadow-sm p-2.5 border focus:outline-none focus:ring-2 focus:ring-primary/50"
                 value={config.keys || ''}
-                onChange={(e) => updateNodeConfig('keys', e.target.value)}
+                onChange={(value) => updateNodeConfig('keys', value)}
+                availableSchemas={availableSchemas}
+                disabled={isReadOnly}
               />
               <p className="text-[10px] text-muted-foreground mt-1">Wypisz po przecinku pola JSON, które mają zostać przekazane dalej. Reszta zostanie odrzucona (odchudzenie payloadu).</p>
             </div>
@@ -702,23 +1141,25 @@ export default function WorkflowEditor({ onBack, workflowId }: WorkflowEditorPro
           <div className="space-y-4">
             <div className="space-y-2">
               <label className="text-sm font-medium text-foreground">Filtruj Nadawcę (Opcjonalnie)</label>
-              <input
-                type="text"
+              <VariablePickerInput
                 placeholder="np. faktury@firma.pl"
                 className="w-full text-sm border-border rounded-md shadow-sm p-2.5 border focus:outline-none focus:ring-2 focus:ring-primary/50"
                 value={config.from_filter || ''}
-                onChange={(e) => updateNodeConfig('from_filter', e.target.value)}
+                onChange={(value) => updateNodeConfig('from_filter', value)}
+                availableSchemas={availableSchemas}
+                disabled={isReadOnly}
               />
               <p className="text-[10px] text-muted-foreground mt-1">Uruchom tylko jeśli nadawca zawiera ten tekst.</p>
             </div>
             <div className="space-y-2">
               <label className="text-sm font-medium text-foreground">Filtruj Temat (Opcjonalnie)</label>
-              <input
-                type="text"
+              <VariablePickerInput
                 placeholder="np. Awaria systemu"
                 className="w-full text-sm border-border rounded-md shadow-sm p-2.5 border focus:outline-none focus:ring-2 focus:ring-primary/50"
                 value={config.subject_filter || ''}
-                onChange={(e) => updateNodeConfig('subject_filter', e.target.value)}
+                onChange={(value) => updateNodeConfig('subject_filter', value)}
+                availableSchemas={availableSchemas}
+                disabled={isReadOnly}
               />
               <p className="text-[10px] text-muted-foreground mt-1">Uruchom tylko jeśli temat zawiera ten tekst.</p>
             </div>
@@ -774,12 +1215,13 @@ export default function WorkflowEditor({ onBack, workflowId }: WorkflowEditorPro
             {config.schedule_type === 'cron' && (
               <div className="space-y-2">
                 <label className="text-sm font-medium text-foreground">Wyrażenie Cron</label>
-                <input
-                  type="text"
+                <VariablePickerInput
                   placeholder="np. 0 8 * * *"
                   className="w-full text-sm font-mono border-border rounded-md shadow-sm p-2.5 border focus:outline-none focus:ring-2 focus:ring-primary/50"
                   value={config.cron_expression || '0 8 * * *'}
-                  onChange={(e) => updateNodeConfig('cron_expression', e.target.value)}
+                  onChange={(value) => updateNodeConfig('cron_expression', value)}
+                  availableSchemas={availableSchemas}
+                  disabled={isReadOnly}
                 />
                 <p className="text-[10px] text-muted-foreground mt-1">
                   Przykład: <code>0 8 * * *</code> oznacza codziennie o 8:00 UTC.
@@ -818,12 +1260,13 @@ export default function WorkflowEditor({ onBack, workflowId }: WorkflowEditorPro
           <div className="space-y-4">
             <div className="space-y-2">
               <label className="text-sm font-medium text-foreground">Zmienna wejściowa do sprawdzenia</label>
-              <input
-                type="text"
+              <VariablePickerInput
                 placeholder="np. status_zamowienia"
                 className="w-full text-sm border-border rounded-md shadow-sm p-2.5 border focus:outline-none focus:ring-2 focus:ring-primary/50"
                 value={config.variable || ''}
-                onChange={(e) => updateNodeConfig('variable', e.target.value)}
+                onChange={(value) => updateNodeConfig('variable', value)}
+                availableSchemas={availableSchemas}
+                disabled={isReadOnly}
               />
             </div>
             
@@ -847,12 +1290,13 @@ export default function WorkflowEditor({ onBack, workflowId }: WorkflowEditorPro
                     <option value="less">Jest mniejsze niż</option>
                     <option value="contains">Zawiera tekst</option>
                   </select>
-                  <input
-                    type="text"
+                  <VariablePickerInput
                     placeholder="Wartość (np. 100 lub 'Opłacone')"
                     className="w-full text-xs border-border rounded-md shadow-sm p-2 border focus:outline-none focus:ring-2 focus:ring-primary/50"
                     value={c.value || ''}
-                    onChange={(e) => updateCase(idx, 'value', e.target.value)}
+                    onChange={(value) => updateCase(idx, 'value', value)}
+                    availableSchemas={availableSchemas}
+                    disabled={isReadOnly}
                   />
                 </div>
               ))}
@@ -874,12 +1318,13 @@ export default function WorkflowEditor({ onBack, workflowId }: WorkflowEditorPro
           <div className="space-y-4">
             <div className="space-y-2">
               <label className="text-sm font-medium text-foreground">Zmienna tablicowa</label>
-              <input
-                type="text"
+              <VariablePickerInput
                 placeholder="np. lista_maili"
                 className="w-full text-sm border-border rounded-md shadow-sm p-2.5 border focus:outline-none focus:ring-2 focus:ring-primary/50"
                 value={config.array_variable || ''}
-                onChange={(e) => updateNodeConfig('array_variable', e.target.value)}
+                onChange={(value) => updateNodeConfig('array_variable', value)}
+                availableSchemas={availableSchemas}
+                disabled={isReadOnly}
               />
               <p className="text-[10px] text-muted-foreground">Klucz w JSON, który zawiera tablicę danych do iteracji.</p>
             </div>
@@ -927,7 +1372,14 @@ export default function WorkflowEditor({ onBack, workflowId }: WorkflowEditorPro
                       <X className="w-3 h-3" />
                     </button>
                   </div>
-                  <input type="text" placeholder="Źródło (np. klient.wiek)" className="w-full text-xs p-1.5 border rounded" value={m.source} onChange={(e) => updateMapping(idx, 'source', e.target.value)} />
+                  <VariablePickerInput
+                    placeholder="Źródło (np. klient.wiek)"
+                    className="w-full text-xs p-1.5 border rounded"
+                    value={m.source}
+                    onChange={(value) => updateMapping(idx, 'source', value)}
+                    availableSchemas={availableSchemas}
+                    disabled={isReadOnly}
+                  />
                   <div className="flex gap-2">
                     <input type="text" placeholder="Docelowy klucz (np. age)" className="w-2/3 text-xs p-1.5 border rounded" value={m.target} onChange={(e) => updateMapping(idx, 'target', e.target.value)} />
                     <select className="w-1/3 text-xs p-1.5 border rounded bg-white" value={m.type} onChange={(e) => updateMapping(idx, 'type', e.target.value)}>

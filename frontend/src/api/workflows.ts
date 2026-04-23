@@ -67,6 +67,27 @@ export async function testWorkflowNode(
   });
 }
 
+export interface VariableCatalogItem {
+  label: string;
+  value: string;
+  sourceNodeName: string;
+}
+
+export interface VariableCatalogResponse {
+  node_id: string;
+  variables: VariableCatalogItem[];
+}
+
+export async function getVariableCatalog(
+  workflowId: string,
+  nodeId: string
+): Promise<VariableCatalogResponse> {
+  const params = new URLSearchParams({ node_id: nodeId });
+  return apiRequest<VariableCatalogResponse>(
+    `/workflows/${encodeURIComponent(workflowId)}/variable-catalog?${params.toString()}`
+  );
+}
+
 export async function publishWorkflow(workflowId: string): Promise<Workflow> {
   return apiRequest<Workflow>(`/workflows/${workflowId}/publish`, { method: 'PUT' });
 }

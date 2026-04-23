@@ -23,18 +23,13 @@ import google.generativeai as genai
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+from .variables import render_template, resolve_template_value, resolve_path
+
 
 # Funkcja pomocnicza do http_request
 def inject_variables(text: str, data: dict) -> str:
     """Wyszukuje tagi {{klucz}} i podmienia je."""
-    if not isinstance(text, str) or not text:
-        return text
-
-    def replacer(match):
-        key = match.group(1).strip()
-        return str(data.get(key, ""))
-
-    return re.sub(r"\{\{\s*(.*?)\s*\}\}", replacer, text)
+    return render_template(text, data)
 
 
 class JiraClient:
@@ -114,39 +109,8 @@ async def execute_slack_msg(
 async def execute_if_else(
     config: dict[str, Any], input_data: dict[str, Any]
 ) -> dict[str, Any]:
-    def _resolve_path(data: Any, path: str) -> Any:
-        if not isinstance(path, str) or not path.strip():
-            return None
-
-        normalized_path = path.strip()
-        m = re.fullmatch(r"\{\{\s*([a-zA-Z0-9_.-]+)\s*\}\}", normalized_path)
-        if m:
-            normalized_path = m.group(1)
-
-        if isinstance(data, dict) and normalized_path in data:
-            return data.get(normalized_path)
-
-        current = data
-        for part in normalized_path.split("."):
-            if isinstance(current, dict):
-                current = current.get(part)
-            elif isinstance(current, list) and part.isdigit():
-                idx = int(part)
-                current = current[idx] if 0 <= idx < len(current) else None
-            else:
-                return None
-            if current is None:
-                return None
-        return current
-
     def _resolve_runtime_value(value: Any) -> Any:
-        if not isinstance(value, str):
-            return value
-        m = re.fullmatch(r"\{\{\s*([a-zA-Z0-9_.-]+)\s*\}\}", value.strip())
-        if not m:
-            return value
-        resolved = _resolve_path(input_data, m.group(1))
-        return resolved
+        return resolve_template_value(value, input_data)
 
     def _to_number(value: Any) -> float:
         if isinstance(value, bool):
@@ -217,7 +181,7 @@ async def execute_if_else(
         operator = str(rule.get("operator", "equals"))
         value_type = str(rule.get("value_type", "auto")).lower()
         raw_target_value = _resolve_runtime_value(rule.get("value"))
-        actual_value = _resolve_path(input_data, str(field))
+        actual_value = resolve_path(input_data, str(field))
 
         if operator == "is_empty":
             return _is_empty(actual_value)
@@ -305,25 +269,7 @@ async def execute_if_else(
 
 
 def _resolve_template_value(value: Any, input_data: dict[str, Any]) -> Any:
-    if isinstance(value, str):
-        stripped = value.strip()
-        pure_template = re.fullmatch(r"\{\{\s*([a-zA-Z0-9_.-]+)\s*\}\}", stripped)
-        if pure_template:
-            path = pure_template.group(1)
-            current: Any = input_data
-            for part in path.split("."):
-                if isinstance(current, dict):
-                    current = current.get(part)
-                elif isinstance(current, list) and part.isdigit():
-                    idx = int(part)
-                    current = current[idx] if 0 <= idx < len(current) else None
-                else:
-                    return None
-                if current is None:
-                    return None
-            return current
-        return inject_variables(value, input_data)
-    return value
+    return resolve_template_value(value, input_data)
 
 
 def _build_collection_payload(

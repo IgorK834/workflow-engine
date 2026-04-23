@@ -3,6 +3,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
 from sqlalchemy import func, case
+from pydantic import BaseModel, Field
+from typing import Any
 import uuid
 import asyncio
 
@@ -13,11 +15,22 @@ from ..models import Workflow, WorkflowExecution
 from ..core.state_manager import StateManager
 from ..core.scheduler import sync_workflows_to_scheduler
 from ..core.security import decrypt_value
-from ..core.runners import JiraClient
+from ..core.runners import JiraClient, run_node_task
 from ..models import SystemSetting, ExecutionStatus, ExecutionStep
 
 router = APIRouter(prefix="/workflows", tags=["workflows"])
 TEST_WORKSPACE_ID = uuid.UUID("11111111-1111-1111-1111-111111111111")
+
+
+class NodeDryRunRequest(BaseModel):
+    type: str = Field(..., description="Typ klocka (trigger/logic/action)")
+    subtype: str = Field(..., description="Podtyp runnera, np. http_request")
+    config: dict[str, Any] = Field(
+        default_factory=dict, description="Konfiguracja klocka z edytora"
+    )
+    input_data: dict[str, Any] = Field(
+        default_factory=dict, description="Mockowane dane wejściowe do testu"
+    )
 
 
 async def get_current_workspace_id() -> uuid.UUID:
@@ -155,6 +168,33 @@ async def trigger_webhook(
     }
 
 
+@router.post("/test-node")
+async def test_workflow_node(
+    payload: NodeDryRunRequest,
+    db: AsyncSession = Depends(get_db),
+    workspace_id: uuid.UUID = Depends(get_current_workspace_id),
+):
+    """Uruchamia pojedynczy węzeł w trybie bezstanowego dry-run (bez side-effectów)."""
+    try:
+        output_data = await run_node_task(
+            subtype=payload.subtype,
+            config=payload.config,
+            input_data=payload.input_data,
+            db=db,
+            workspace_id=workspace_id,
+            dry_run=True,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return {
+        "status": "success",
+        "node_type": payload.type,
+        "node_subtype": payload.subtype,
+        "output": output_data,
+    }
+
+
 @router.put("/{workflow_id}/publish", response_model=WorkflowResponse)
 async def publish_workflow(
     workflow_id: uuid.UUID,
@@ -198,7 +238,9 @@ async def toggle_workflow(
     workflow = result.scalar_one_or_none()
 
     if not workflow:
-        raise HTTPException(status_code=404, detail="Nie znaleziono procesu o podanym ID")
+        raise HTTPException(
+            status_code=404, detail="Nie znaleziono procesu o podanym ID"
+        )
 
     workflow.is_active = not bool(workflow.is_active)
     await db.commit()
@@ -206,6 +248,7 @@ async def toggle_workflow(
     await sync_workflows_to_scheduler()
 
     return workflow
+
 
 @router.delete("/{workflow_id}")
 async def delete_workflow(
@@ -222,8 +265,10 @@ async def delete_workflow(
     workflow = result.scalar_one_or_none()
 
     if not workflow:
-        raise HTTPException(status_code=404, detail="Nie znaleziono procesu o podanym ID")
-    
+        raise HTTPException(
+            status_code=404, detail="Nie znaleziono procesu o podanym ID"
+        )
+
     await db.delete(workflow)
     await db.commit()
     await sync_workflows_to_scheduler()
@@ -247,14 +292,25 @@ async def get_workflows_stats(
         select(
             day_bucket,
             func.count(WorkflowExecution.id).label("total"),
-            func.sum(case((WorkflowExecution.status == ExecutionStatus.COMPLETED, 1), else_=0)).label(
-                "completed"
-            ),
-            func.sum(case((WorkflowExecution.status == ExecutionStatus.FAILED, 1), else_=0)).label("failed"),
-            func.sum(case((WorkflowExecution.status == ExecutionStatus.PAUSED, 1), else_=0)).label("paused"),
-            func.sum(case((WorkflowExecution.status == ExecutionStatus.RUNNING, 1), else_=0)).label("running"),
+            func.sum(
+                case(
+                    (WorkflowExecution.status == ExecutionStatus.COMPLETED, 1), else_=0
+                )
+            ).label("completed"),
+            func.sum(
+                case((WorkflowExecution.status == ExecutionStatus.FAILED, 1), else_=0)
+            ).label("failed"),
+            func.sum(
+                case((WorkflowExecution.status == ExecutionStatus.PAUSED, 1), else_=0)
+            ).label("paused"),
+            func.sum(
+                case((WorkflowExecution.status == ExecutionStatus.RUNNING, 1), else_=0)
+            ).label("running"),
         )
-        .where(WorkflowExecution.started_at >= func.now() - func.make_interval(days=safe_days))
+        .where(
+            WorkflowExecution.started_at
+            >= func.now() - func.make_interval(days=safe_days)
+        )
         .where(WorkflowExecution.workspace_id == workspace_id)
         .group_by(day_bucket)
         .order_by(day_bucket.desc())
@@ -304,7 +360,9 @@ async def get_workflows_logs(
                 "id": str(s.id),
                 "execution_id": str(s.execution_id),
                 "node_id": s.node_id,
-                "status": (s.status.value if hasattr(s.status, "value") else str(s.status)),
+                "status": (
+                    s.status.value if hasattr(s.status, "value") else str(s.status)
+                ),
                 "started_at": s.started_at.isoformat() if s.started_at else None,
                 "finished_at": s.finished_at.isoformat() if s.finished_at else None,
                 "error_message": s.error_message,
@@ -312,6 +370,7 @@ async def get_workflows_logs(
             for s in steps
         ],
     }
+
 
 @router.get("/nodes/jira/projects")
 async def fetch_jira_projects(
@@ -328,8 +387,10 @@ async def fetch_jira_projects(
     setting = result.scalar_one_or_none()
 
     if not setting or not setting.value:
-        raise HTTPException(status_code=400, detail="Brak konfiguracji Jira w ustawieniach.")
-    
+        raise HTTPException(
+            status_code=400, detail="Brak konfiguracji Jira w ustawieniach."
+        )
+
     jira_config = setting.value
     domain = jira_config.get("domain")
     email = jira_config.get("email")
@@ -343,6 +404,7 @@ async def fetch_jira_projects(
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+
 @router.post("/{workflow_id}/resume")
 async def resume_workflow(
     workflow_id: uuid.UUID,
@@ -350,7 +412,7 @@ async def resume_workflow(
     workspace_id: uuid.UUID = Depends(get_current_workspace_id),
 ):
     """Wznawia najnowszą wstrzymaną akcję dla danego procesu."""
-    
+
     result = await db.execute(
         select(WorkflowExecution)
         .where(
@@ -361,35 +423,36 @@ async def resume_workflow(
         .order_by(WorkflowExecution.started_at.desc())
     )
     execution = result.scalars().first()
-    
+
     if not execution:
-        raise HTTPException(status_code=404, detail="Ten proces nie ma aktualnie żadnych wstrzymanych akcji.")
+        raise HTTPException(
+            status_code=404,
+            detail="Ten proces nie ma aktualnie żadnych wstrzymanych akcji.",
+        )
 
     step_result = await db.execute(
         select(ExecutionStep).where(
             ExecutionStep.execution_id == execution.id,
-            ExecutionStep.status == ExecutionStatus.PAUSED
+            ExecutionStep.status == ExecutionStatus.PAUSED,
         )
     )
     step = step_result.scalars().first()
-    
+
     if not step:
         raise HTTPException(status_code=404, detail="Brak zatrzymanego kroku.")
 
     output_data = step.output_data or {}
     original_input = output_data.get("original_input", {})
-    
+
     new_output_data = {
         "status": "success",
         "decision": "approved",
         "payload": original_input,
     }
-    
+
     state_manager = StateManager(db)
     await state_manager.update_step_status(
-        step_id=step.id,
-        status=ExecutionStatus.COMPLETED,
-        output_data=new_output_data
+        step_id=step.id, status=ExecutionStatus.COMPLETED, output_data=new_output_data
     )
 
     execution.status = ExecutionStatus.RUNNING
@@ -404,11 +467,14 @@ async def resume_workflow(
     )
     workflow = wf_result.scalar_one_or_none()
     if not workflow:
-        raise HTTPException(status_code=404, detail="Nie znaleziono procesu o podanym ID")
+        raise HTTPException(
+            status_code=404, detail="Nie znaleziono procesu o podanym ID"
+        )
     engine = ExecutionEngine(db, execution.id)
     asyncio.create_task(engine.run(workflow.graph_json))
 
     return {"status": "resumed", "message": "Proces pomyślnie wznowiony!"}
+
 
 @router.get("/{workflow_id}/executions/{execution_id}")
 async def get_execution_details(
@@ -420,7 +486,10 @@ async def get_execution_details(
     """Pobiera szczegóły konkretnej akcji pod widok i śledzenie"""
     stmt = (
         select(WorkflowExecution)
-        .options(selectinload(WorkflowExecution.steps), selectinload(WorkflowExecution.workflow))
+        .options(
+            selectinload(WorkflowExecution.steps),
+            selectinload(WorkflowExecution.workflow),
+        )
         .where(
             WorkflowExecution.id == execution_id,
             WorkflowExecution.workflow_id == workflow_id,
@@ -433,29 +502,37 @@ async def get_execution_details(
 
     if not execution:
         raise HTTPException(status_code=404, detail="Nie znaleziono podanej akcji")
-    
+
     return {
         "execution": {
             "id": str(execution.id),
-            "status": execution.status.value if hasattr(execution.status, "value") else str(execution.status),
+            "status": (
+                execution.status.value
+                if hasattr(execution.status, "value")
+                else str(execution.status)
+            ),
             "started_at": execution.started_at,
-            "finished_at": execution.finished_at
+            "finished_at": execution.finished_at,
         },
         "workflow": {
             "name": execution.workflow.name,
-            "graph_json": execution.workflow.graph_json
+            "graph_json": execution.workflow.graph_json,
         },
         "steps": [
             {
                 "id": str(step.id),
                 "node_id": step.node_id,
-                "status": step.status.value if hasattr(step.status, "value") else str(step.status),
+                "status": (
+                    step.status.value
+                    if hasattr(step.status, "value")
+                    else str(step.status)
+                ),
                 "input_data": step.input_data,
                 "output_data": step.output_data,
                 "error_message": step.error_message,
                 "started_at": step.started_at,
-                "finnished_at": step.finished_at
+                "finnished_at": step.finished_at,
             }
             for step in execution.steps
-        ]
+        ],
     }

@@ -36,8 +36,10 @@ def inject_variables(text: str, data: dict) -> str:
 
     return re.sub(r"\{\{\s*(.*?)\s*\}\}", replacer, text)
 
+
 class JiraClient:
     """Pomocniczy klient do komunikacji z Jira REST API v3"""
+
     def __init__(self, domain: str, email: str, api_token: str):
         self.base_url = f"https://{domain}.atlassian.net/rest/api/v3"
         auth_str = f"{email}:{api_token}"
@@ -45,7 +47,7 @@ class JiraClient:
         self.headers = {
             "Authorization": f"Basic {encoded_auth}",
             "Accept": "application/json",
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
         }
 
     async def get_projects(self):
@@ -53,19 +55,27 @@ class JiraClient:
             resp = await client.get(f"{self.base_url}/projects", headers=self.headers)
             resp.raise_for_status()
             return resp.json()
-        
+
     async def get_issue_types(self, project_id: str):
         async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.get(f"{self.base_url}/issuetype/project?ProjectId={project_id}", headers=self.headers)
+            resp = await client.get(
+                f"{self.base_url}/issuetype/project?ProjectId={project_id}",
+                headers=self.headers,
+            )
             resp.raise_for_status()
             return resp.json()
 
-async def execute_webhook(config: dict[str, Any], input_data: dict[str, Any]) -> dict[str, Any]:
+
+async def execute_webhook(
+    config: dict[str, Any], input_data: dict[str, Any]
+) -> dict[str, Any]:
     logger.info(f"Odebrano dane z Webhooka: {input_data}")
     return input_data
 
 
-async def execute_slack_msg(config: dict[str, Any], input_data: dict[str, Any]) -> dict[str, Any]:
+async def execute_slack_msg(
+    config: dict[str, Any], input_data: dict[str, Any]
+) -> dict[str, Any]:
     """Symulacja wysłania wiadomości na slacka"""
     channel = config.get("channel", "#general")
     message = config.get("message", "Pusta wiadomość")
@@ -80,7 +90,9 @@ async def execute_slack_msg(config: dict[str, Any], input_data: dict[str, Any]) 
     }
 
 
-async def execute_if_else(config: dict[str, Any], input_data: dict[str, Any]) -> dict[str, Any]:
+async def execute_if_else(
+    config: dict[str, Any], input_data: dict[str, Any]
+) -> dict[str, Any]:
     def _resolve_path(data: Any, path: str) -> Any:
         if not isinstance(path, str) or not path.strip():
             return None
@@ -191,7 +203,9 @@ async def execute_if_else(config: dict[str, Any], input_data: dict[str, Any]) ->
         if operator == "is_not_empty":
             return not _is_empty(actual_value)
 
-        coerced_actual, coerced_target = _coerce_pair(actual_value, raw_target_value, value_type)
+        coerced_actual, coerced_target = _coerce_pair(
+            actual_value, raw_target_value, value_type
+        )
 
         if operator == "equals":
             return coerced_actual == coerced_target
@@ -291,7 +305,9 @@ def _resolve_template_value(value: Any, input_data: dict[str, Any]) -> Any:
     return value
 
 
-def _build_collection_payload(config: dict[str, Any], input_data: dict[str, Any]) -> dict[str, Any]:
+def _build_collection_payload(
+    config: dict[str, Any], input_data: dict[str, Any]
+) -> dict[str, Any]:
     mappings = config.get("mappings", [])
     if isinstance(mappings, list) and mappings:
         payload: dict[str, Any] = {}
@@ -319,7 +335,11 @@ async def _get_workspace_collection(
 
     if collection_id_raw:
         try:
-            collection_id = collection_id_raw if isinstance(collection_id_raw, str) else str(collection_id_raw)
+            collection_id = (
+                collection_id_raw
+                if isinstance(collection_id_raw, str)
+                else str(collection_id_raw)
+            )
             collection_uuid = uuid.UUID(collection_id)
             result = await db.execute(
                 select(Collection).where(
@@ -355,7 +375,9 @@ def _match_record(data: dict[str, Any], match: dict[str, Any]) -> bool:
     return True
 
 
-def _build_match_payload(config: dict[str, Any], input_data: dict[str, Any]) -> dict[str, Any]:
+def _build_match_payload(
+    config: dict[str, Any], input_data: dict[str, Any]
+) -> dict[str, Any]:
     rules = config.get("match_rules", [])
     if isinstance(rules, list) and rules:
         payload: dict[str, Any] = {}
@@ -433,7 +455,9 @@ async def execute_collection_update(
         select(CollectionRecord).where(CollectionRecord.collection_id == collection.id)
     )
     records = records_result.scalars().all()
-    target_record = next((r for r in records if _match_record(r.data or {}, match_payload)), None)
+    target_record = next(
+        (r for r in records if _match_record(r.data or {}, match_payload)), None
+    )
     if not target_record:
         raise ValueError("Nie znaleziono rekordu spełniającego warunek aktualizacji.")
 
@@ -442,7 +466,9 @@ async def execute_collection_update(
     await db.commit()
     await db.refresh(target_record)
 
-    logger.info(f"[COLLECTION UPDATE] Zaktualizowano rekord w kolekcji '{collection.name}'")
+    logger.info(
+        f"[COLLECTION UPDATE] Zaktualizowano rekord w kolekcji '{collection.name}'"
+    )
     return {
         "status": "updated",
         "collection_id": str(collection.id),
@@ -482,7 +508,9 @@ async def execute_collection_find(
         if not match_payload or _match_record(record.data or {}, match_payload)
     ][:limit]
 
-    logger.info(f"[COLLECTION FIND] Znaleziono {len(matched)} rekordów w '{collection.name}'")
+    logger.info(
+        f"[COLLECTION FIND] Znaleziono {len(matched)} rekordów w '{collection.name}'"
+    )
     return {
         "status": "found",
         "collection_id": str(collection.id),
@@ -493,13 +521,17 @@ async def execute_collection_find(
     }
 
 
-async def execute_http_request(config: dict[str, Any], input_data: dict[str, Any]) -> dict[str, Any]:
+async def execute_http_request(
+    config: dict[str, Any], input_data: dict[str, Any]
+) -> dict[str, Any]:
     """Węzeł HTTP wspierający zoptymalizowane struktury JSON oraz dynamiczne formularze."""
     raw_url = config.get("url", "")
     method = config.get("method", "GET").upper()
 
     if not raw_url:
-        raise ValueError("Krok przerwany: Brak podanego adresu URL w konfiguracji węzła HTTP.")
+        raise ValueError(
+            "Krok przerwany: Brak podanego adresu URL w konfiguracji węzła HTTP."
+        )
 
     url = inject_variables(raw_url, input_data)
 
@@ -529,7 +561,7 @@ async def execute_http_request(config: dict[str, Any], input_data: dict[str, Any
         for k, v in params_config.items():
             if k.strip():
                 params[k.strip()] = inject_variables(str(v), input_data)
-    elif isinstance(params_config, list): # Legacy fallback
+    elif isinstance(params_config, list):  # Legacy fallback
         for p in params_config:
             k = p.get("key", "").strip()
             v = p.get("value", "")
@@ -538,7 +570,7 @@ async def execute_http_request(config: dict[str, Any], input_data: dict[str, Any
 
     body_type = config.get("body_type", "json").lower()
     body_config = config.get("body", {})
-    
+
     json_body = None
     data_body = None
     content_body = None
@@ -555,13 +587,15 @@ async def execute_http_request(config: dict[str, Any], input_data: dict[str, Any
                             json_body[k.strip()] = inject_variables(v, input_data)
                         else:
                             json_body[k.strip()] = inject_variables(str(v), input_data)
-            elif isinstance(body_config, list): # Legacy fallback dla typowanych pól w arrayach
+            elif isinstance(
+                body_config, list
+            ):  # Legacy fallback dla typowanych pól w arrayach
                 json_body = {}
                 for b in body_config:
                     k = b.get("key", "").strip()
                     v = b.get("value", "")
                     target_type = b.get("type", "string").lower()
-                    
+
                     if k:
                         injected_val = inject_variables(str(v), input_data)
                         try:
@@ -570,12 +604,17 @@ async def execute_http_request(config: dict[str, Any], input_data: dict[str, Any
                             elif target_type == "float":
                                 json_body[k] = float(injected_val)
                             elif target_type in ["bool", "boolean"]:
-                                json_body[k] = injected_val.lower() in ['true', '1', 'yes', 't']
+                                json_body[k] = injected_val.lower() in [
+                                    "true",
+                                    "1",
+                                    "yes",
+                                    "t",
+                                ]
                             else:
                                 json_body[k] = injected_val
                         except ValueError:
                             json_body[k] = injected_val
-                            
+
         elif body_type == "form-data" and isinstance(body_config, list):
             data_body = {}
             for b in body_config:
@@ -583,28 +622,28 @@ async def execute_http_request(config: dict[str, Any], input_data: dict[str, Any
                 v = b.get("value", "")
                 if k:
                     data_body[k] = inject_variables(str(v), input_data)
-                    
+
         elif body_type == "raw" and isinstance(body_config, str):
             content_body = inject_variables(body_config, input_data)
-            
+
         elif isinstance(body_config, str) and body_config.strip():
-             try:
-                 json_body = json.loads(inject_variables(body_config, input_data))
-             except:
-                 content_body = inject_variables(body_config, input_data)
+            try:
+                json_body = json.loads(inject_variables(body_config, input_data))
+            except:
+                content_body = inject_variables(body_config, input_data)
 
     logger.info(f"[HTTP REQUEST] {method} -> {url}")
 
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.request(
-                method, 
-                url, 
+                method,
+                url,
                 params=params,
-                headers=headers, 
+                headers=headers,
                 json=json_body,
                 data=data_body,
-                content=content_body
+                content=content_body,
             )
 
             try:
@@ -616,12 +655,13 @@ async def execute_http_request(config: dict[str, Any], input_data: dict[str, Any
                 "status_code": response.status_code,
                 "body": response_body,
                 "headers": dict(response.headers),
-                "request_url": str(response.url)
+                "request_url": str(response.url),
             }
-            
+
     except httpx.RequestError as exc:
         logger.error(f"[HTTP REQUEST] Błąd połączenia z {url}: {exc}")
         raise ValueError(f"Błąd sieciowy podczas komunikacji z zewnętrznym API: {exc}")
+
 
 async def execute_send_email(
     config: dict[str, Any],
@@ -798,6 +838,7 @@ async def execute_for_each(
         "items": items,
     }
 
+
 async def execute_jira_create_ticket(
     config: dict[str, Any],
     input_data: dict[str, Any],
@@ -807,7 +848,7 @@ async def execute_jira_create_ticket(
     """Węzeł tworzący ticket w Jira przy uyciu ADF"""
     if not db:
         raise ValueError("[JIRA] Brak połączenia z bazą danych")
-    
+
     query = select(SystemSetting).where(SystemSetting.key == "jira_profile")
     if workspace_id is not None:
         query = query.where(SystemSetting.workspace_id == workspace_id)
@@ -816,7 +857,7 @@ async def execute_jira_create_ticket(
 
     if not setting or not setting.value:
         raise ValueError("[JIRA] Skonfiguruj połączenie z Jira w zakładze ustawienia.")
-    
+
     jira_config = setting.value
     domain = jira_config.get("domain")
     email = jira_config.get("email")
@@ -831,7 +872,7 @@ async def execute_jira_create_ticket(
 
     if not all([domain, email, api_token, project_key, summary]):
         raise ValueError("[JIRA] Brak wymaganej konfiguracji dla węzła Jira!")
-    
+
     jira = JiraClient(domain, email, api_token)
 
     payload = {
@@ -845,33 +886,40 @@ async def execute_jira_create_ticket(
                 "content": [
                     {
                         "type": "paragraph",
-                        "content": [{"type": "text", "text": description_text}]
+                        "content": [{"type": "text", "text": description_text}],
                     }
-                ]
-            }
+                ],
+            },
         }
-    }  
+    }
 
     logger.info(f"[JIRA] Tworzę zgłoszenie w projekcie: {project_key}: {summary}")
 
     async with httpx.AsyncClient(timeout=30.0) as client:
-        response = await client.post(f"{jira.base_url}/issue", json=payload, headers=jira.headers)
+        response = await client.post(
+            f"{jira.base_url}/issue", json=payload, headers=jira.headers
+        )
 
         if response.status_code != 201:
             logger.error(f"[JIRA] Error {response.text}")
-            raise ValueError(f"[JIRA] Api error: {response.status_code} - {response.text}")
-        
+            raise ValueError(
+                f"[JIRA] Api error: {response.status_code} - {response.text}"
+            )
+
         data = response.json()
         return {
             "issue_id": data["id"],
             "issue_key": data["key"],
             "url": f"https://{domain}/atlassian.net/browse/{data['key']}",
-            "status": "created"
+            "status": "created",
         }
-    
+
+
 async def execute_manual_approval(config: dict[str, Any], input_data: dict[str, Any]):
     """Węzeł wstrzymujący proces i oczekujący w tym czasie na ręczną akceptację uytkownika"""
-    logger.info(f"[MANUAL APPROVAL] Proces wstrzymany. Oczkeuje na kliknięcie 'Akceptuj' w panelu Moje Procesy")
+    logger.info(
+        f"[MANUAL APPROVAL] Proces wstrzymany. Oczkeuje na kliknięcie 'Akceptuj' w panelu Moje Procesy"
+    )
 
     return {
         "__pause__": True,
@@ -885,11 +933,15 @@ async def execute_gemini_custom(
 ) -> dict[str, Any]:
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
-        raise ValueError("Brak zmiennej środowiskowej GEMINI_API_KEY (konfiguracja globalna).")
+        raise ValueError(
+            "Brak zmiennej środowiskowej GEMINI_API_KEY (konfiguracja globalna)."
+        )
 
     prompt = config.get("prompt", "")
     if not isinstance(prompt, str) or not prompt.strip():
-        raise ValueError("Krok przerwany: Brak promptu w konfiguracji węzła Gemini (Własny Prompt).")
+        raise ValueError(
+            "Krok przerwany: Brak promptu w konfiguracji węzła Gemini (Własny Prompt)."
+        )
 
     final_prompt = inject_variables(prompt, input_data)
 
@@ -913,13 +965,17 @@ async def execute_gemini_template(
 ) -> dict[str, Any]:
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
-        raise ValueError("Brak zmiennej środowiskowej GEMINI_API_KEY (konfiguracja globalna).")
+        raise ValueError(
+            "Brak zmiennej środowiskowej GEMINI_API_KEY (konfiguracja globalna)."
+        )
 
     template_type = config.get("template_type", "summarize")
     target_variable = config.get("target_variable", "")
 
     if not isinstance(target_variable, str) or not target_variable.strip():
-        raise ValueError("Krok przerwany: Brak 'target_variable' w konfiguracji węzła Gemini (Szablon).")
+        raise ValueError(
+            "Krok przerwany: Brak 'target_variable' w konfiguracji węzła Gemini (Szablon)."
+        )
 
     templates: dict[str, str] = {
         "summarize": "Jesteś asystentem. Zwięźle podsumuj poniższy tekst w 5-7 punktach.",
@@ -972,12 +1028,91 @@ RUNNERS_REGISTRY = {
 }
 
 
+def _build_dry_run_output(
+    subtype: str, config: dict[str, Any], input_data: dict[str, Any]
+) -> dict[str, Any] | None:
+    if subtype == "http_request":
+        raw_url = str(config.get("url", ""))
+        return {
+            "status_code": 200,
+            "body": {
+                "dry_run": True,
+                "message": "Pominięto realne wywołanie HTTP w trybie testowym.",
+                "echo_input": input_data,
+            },
+            "headers": {},
+            "request_url": inject_variables(raw_url, input_data) if raw_url else "",
+        }
+
+    if subtype == "send_email":
+        recipient = str(config.get("recipient", "example@example.com"))
+        subject = str(config.get("subject", "Temat"))
+        return {
+            "status": "email_mocked",
+            "dry_run": True,
+            "recipient": recipient,
+            "subject": subject,
+            "message": "Wysłanie e-mail zostało pominięte w trybie testowym.",
+        }
+
+    if subtype == "jira_create_ticket":
+        project_key = inject_variables(
+            str(config.get("project_key", "DRY")), input_data
+        )
+        issue_summary = inject_variables(
+            str(config.get("summary", "Dry-run ticket")), input_data
+        )
+        fake_issue_key = f"{project_key or 'DRY'}-TEST"
+        return {
+            "status": "created_mock",
+            "dry_run": True,
+            "issue_id": "dry-run-issue-id",
+            "issue_key": fake_issue_key,
+            "summary": issue_summary,
+            "url": f"https://example.atlassian.net/browse/{fake_issue_key}",
+        }
+
+    if subtype in {"collection_insert", "db_insert"}:
+        payload = _build_collection_payload(config, input_data)
+        return {
+            "status": "inserted_mock",
+            "dry_run": True,
+            "collection_id": str(config.get("collection_id", "dry-run-collection")),
+            "collection_name": str(config.get("collection_name", "dry-run-collection")),
+            "record_id": "dry-run-record-id",
+            "payload": payload,
+        }
+
+    if subtype == "collection_update":
+        payload = _build_collection_payload(config, input_data)
+        match = _build_match_payload(config, input_data)
+        return {
+            "status": "updated_mock",
+            "dry_run": True,
+            "collection_id": str(config.get("collection_id", "dry-run-collection")),
+            "collection_name": str(config.get("collection_name", "dry-run-collection")),
+            "record_id": "dry-run-record-id",
+            "match": match,
+            "payload": payload,
+        }
+
+    if subtype in {"gemini_custom", "gemini_template"}:
+        return {
+            "generated_text": "[DRY RUN] Pominięto realne wywołanie Gemini.",
+            "dry_run": True,
+            "template_type": str(config.get("template_type", "custom")),
+        }
+
+    return None
+
+
 async def run_node_task(
     subtype: str,
     config: dict[str, Any],
     input_data: dict[str, Any],
     db: AsyncSession = None,
     workspace_id: Any = None,
+    dry_run: bool = False,
 ) -> dict[str, Any]:
     """Otrzymuje typ klocka i uruchamia odpowiedniego runnera"""
     runner_func = RUNNERS_REGISTRY.get(subtype)
@@ -985,10 +1120,18 @@ async def run_node_task(
     if not runner_func:
         raise ValueError(f"Brak zdefiniowanego runnera dla klocka o typie: '{subtype}'")
 
+    if dry_run:
+        mock_output = _build_dry_run_output(subtype, config, input_data)
+        if mock_output is not None:
+            logger.info(f"[DRY RUN] Zwrócono mock dla klocka: {subtype}")
+            return mock_output
+
     runner_params = inspect.signature(runner_func).parameters
     kwargs: dict[str, Any] = {}
     if "db" in runner_params:
         kwargs["db"] = db
     if "workspace_id" in runner_params:
         kwargs["workspace_id"] = workspace_id
+    if "dry_run" in runner_params:
+        kwargs["dry_run"] = dry_run
     return await runner_func(config, input_data, **kwargs)

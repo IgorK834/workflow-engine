@@ -76,18 +76,39 @@ async def execute_webhook(
 async def execute_slack_msg(
     config: dict[str, Any], input_data: dict[str, Any]
 ) -> dict[str, Any]:
-    """Symulacja wysłania wiadomości na slacka"""
-    channel = config.get("channel", "#general")
-    message = config.get("message", "Pusta wiadomość")
+    """Wysyłka wiadomości do Slack Incoming Webhook."""
+    webhook_url = str(config.get("webhook_url", "")).strip()
+    message = str(config.get("message", "")).strip()
 
-    logger.info(f"[SLACK] Wysyłam na kanał {channel}: {message}")
+    if not webhook_url:
+        raise ValueError("[SLACK] Brak webhook_url w konfiguracji węzła Slack.")
 
-    return {
-        "status": "sent",
-        "channel": channel,
-        "message": message,
-        "provider": "slack",
-    }
+    injected_message = inject_variables(message, input_data) if message else ""
+    payload = {"text": injected_message}
+
+    logger.info(f"[SLACK] POST -> {webhook_url}")
+
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(webhook_url, json=payload)
+
+        if response.status_code < 200 or response.status_code >= 300:
+            logger.error(f"[SLACK] Error {response.status_code}: {response.text}")
+            raise ValueError(
+                f"[SLACK] API error: {response.status_code} - {response.text}"
+            )
+
+        return {
+            "status": "sent",
+            "status_code": response.status_code,
+            "webhook_url": webhook_url,
+            "message": injected_message,
+            "provider": "slack",
+            "response_text": response.text,
+        }
+    except httpx.RequestError as exc:
+        logger.error(f"[SLACK] Błąd połączenia z {webhook_url}: {exc}")
+        raise ValueError(f"[SLACK] Błąd sieciowy podczas komunikacji ze Slack: {exc}")
 
 
 async def execute_if_else(

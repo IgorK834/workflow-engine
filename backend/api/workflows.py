@@ -17,6 +17,7 @@ from ..core.scheduler import sync_workflows_to_scheduler
 from ..core.security import decrypt_value
 from ..core.runners import JiraClient, run_node_task
 from ..models import SystemSetting, ExecutionStatus, ExecutionStep
+from ..core.schema_discovery import infer_node_output_schema
 
 router = APIRouter(prefix="/workflows", tags=["workflows"])
 TEST_WORKSPACE_ID = uuid.UUID("11111111-1111-1111-1111-111111111111")
@@ -31,6 +32,81 @@ class NodeDryRunRequest(BaseModel):
     input_data: dict[str, Any] = Field(
         default_factory=dict, description="Mockowane dane wejściowe do testu"
     )
+
+
+class VariableCatalogItem(BaseModel):
+    label: str
+    value: str
+    sourceNodeName: str
+
+
+class VariableCatalogResponse(BaseModel):
+    node_id: str
+    variables: list[VariableCatalogItem]
+
+
+def _walk_object_paths(value: Any, prefix: str = "", max_depth: int = 6) -> list[str]:
+    if max_depth <= 0:
+        return []
+    paths: list[str] = []
+
+    if isinstance(value, dict):
+        for k, v in value.items():
+            key = str(k)
+            path = f"{prefix}.{key}" if prefix else key
+            paths.append(path)
+            paths.extend(_walk_object_paths(v, path, max_depth=max_depth - 1))
+    elif isinstance(value, list):
+        for i, v in enumerate(value[:10]):  # avoid exploding catalogs
+            key = str(i)
+            path = f"{prefix}.{key}" if prefix else key
+            paths.append(path)
+            paths.extend(_walk_object_paths(v, path, max_depth=max_depth - 1))
+
+    return paths
+
+
+def _flatten_schema_paths(schema: dict[str, Any], prefix: str = "") -> list[str]:
+    paths: list[str] = []
+    for k, v in (schema or {}).items():
+        key = str(k)
+        path = f"{prefix}.{key}" if prefix else key
+        if isinstance(v, dict):
+            paths.extend(_flatten_schema_paths(v, path))
+        else:
+            paths.append(path)
+    return paths
+
+
+def _get_upstream_node_ids(graph_json: dict[str, Any], node_id: str) -> list[str]:
+    nodes = graph_json.get("nodes") or []
+    edges = graph_json.get("edges") or []
+    node_ids = {str(n.get("id")) for n in nodes if isinstance(n, dict) and n.get("id")}
+    if node_id not in node_ids:
+        return []
+
+    incoming: dict[str, list[str]] = {}
+    for e in edges:
+        if not isinstance(e, dict):
+            continue
+        tgt = str(e.get("target", ""))
+        src = str(e.get("source", ""))
+        if not tgt or not src:
+            continue
+        incoming.setdefault(tgt, []).append(src)
+
+    visited = {node_id}
+    queue = [node_id]
+    upstream: list[str] = []
+    while queue:
+        tgt = queue.pop(0)
+        for src in incoming.get(tgt, []):
+            if src in visited:
+                continue
+            visited.add(src)
+            upstream.append(src)
+            queue.append(src)
+    return upstream
 
 
 async def get_current_workspace_id() -> uuid.UUID:
@@ -193,6 +269,88 @@ async def test_workflow_node(
         "node_subtype": payload.subtype,
         "output": output_data,
     }
+
+
+@router.get("/{workflow_id}/variable-catalog", response_model=VariableCatalogResponse)
+async def get_variable_catalog(
+    workflow_id: uuid.UUID,
+    node_id: str,
+    db: AsyncSession = Depends(get_db),
+    workspace_id: uuid.UUID = Depends(get_current_workspace_id),
+):
+    """Zwraca katalog zmiennych dostępnych dla danego węzła (runtime + schema fallback)."""
+    result = await db.execute(
+        select(Workflow).where(Workflow.id == workflow_id, Workflow.workspace_id == workspace_id)
+    )
+    workflow = result.scalar_one_or_none()
+    if not workflow:
+        raise HTTPException(status_code=404, detail="Nie znaleziono procesu o podanym ID")
+
+    graph_json = workflow.graph_json or {}
+    upstream_node_ids = _get_upstream_node_ids(graph_json, node_id)
+
+    nodes = graph_json.get("nodes") or []
+    node_by_id: dict[str, dict[str, Any]] = {}
+    for n in nodes:
+        if not isinstance(n, dict):
+            continue
+        nid = n.get("id")
+        if nid:
+            node_by_id[str(nid)] = n
+
+    # last execution runtime outputs
+    exec_result = await db.execute(
+        select(WorkflowExecution)
+        .where(WorkflowExecution.workflow_id == workflow_id, WorkflowExecution.workspace_id == workspace_id)
+        .order_by(WorkflowExecution.started_at.desc())
+        .limit(1)
+    )
+    last_exec = exec_result.scalar_one_or_none()
+
+    runtime_outputs: dict[str, dict[str, Any]] = {}
+    if last_exec:
+        steps_result = await db.execute(
+            select(ExecutionStep).where(ExecutionStep.execution_id == last_exec.id)
+        )
+        for step in steps_result.scalars().all():
+            if step.node_id in upstream_node_ids and isinstance(step.output_data, dict):
+                runtime_outputs[step.node_id] = step.output_data
+
+    items: list[VariableCatalogItem] = []
+    seen: set[tuple[str, str]] = set()
+
+    for upstream_id in upstream_node_ids:
+        node = node_by_id.get(upstream_id) or {}
+        data = node.get("data") if isinstance(node.get("data"), dict) else {}
+        node_label = str((data or {}).get("label") or upstream_id)
+        config = (data or {}).get("config") if isinstance((data or {}).get("config"), dict) else {}
+        subtype = str((data or {}).get("subtype") or "")
+
+        # runtime paths
+        runtime = runtime_outputs.get(upstream_id)
+        if runtime:
+            for p in _walk_object_paths(runtime):
+                token = f"{{{{{p}}}}}"
+                key = (node_label, token)
+                if key in seen:
+                    continue
+                seen.add(key)
+                items.append(VariableCatalogItem(label=p, value=token, sourceNodeName=node_label))
+
+        # schema fallback paths
+        schema = infer_node_output_schema(subtype, config)
+        for p in _flatten_schema_paths(schema):
+            if p.startswith("_meta."):
+                continue
+            token = f"{{{{{p}}}}}"
+            key = (node_label, token)
+            if key in seen:
+                continue
+            seen.add(key)
+            items.append(VariableCatalogItem(label=p, value=token, sourceNodeName=node_label))
+
+    items.sort(key=lambda i: (i.sourceNodeName, i.label))
+    return {"node_id": node_id, "variables": items}
 
 
 @router.put("/{workflow_id}/publish", response_model=WorkflowResponse)

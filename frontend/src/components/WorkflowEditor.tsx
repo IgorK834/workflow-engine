@@ -34,21 +34,17 @@ import {
   Sparkles,
   Brain,
   Zap,
-  Variable,
-  Braces,
-  ChevronRight,
-  Plus,
-  Trash2,
-  GitCompareArrows,
-  Blocks,
 } from 'lucide-react';
 import TriggerNode from '../nodes/TriggerNode';
 import LogicNode from '../nodes/LogicNode';
 import ActionNode from '../nodes/ActionNode';
 import VariableInput, { type AvailableVariable } from './VariableInput';
+import IfElseForm from './nodeForms/IfElseForm';
+import SwitchForm from './nodeForms/SwitchForm';
 import {
   createWorkflow,
   executeWorkflowTest,
+  getVariableCatalog,
   publishWorkflow,
   testWorkflowNode,
 } from '../api/workflows';
@@ -80,164 +76,10 @@ interface AvailableNodeSchema {
   schema: OutputSchema;
 }
 
-type RuleGroupCondition = 'AND' | 'OR';
-type RuleOperator =
-  | 'equals'
-  | 'not_equals'
-  | 'greater'
-  | 'greater_or_equal'
-  | 'less'
-  | 'less_or_equal'
-  | 'contains'
-  | 'not_contains'
-  | 'starts_with'
-  | 'ends_with'
-  | 'is_empty'
-  | 'is_not_empty';
-type RuleValueType = 'auto' | 'string' | 'number' | 'boolean' | 'date';
-
-interface IfElseRule {
-  id: string;
-  field: string;
-  operator: RuleOperator;
-  value: string;
-  value_type: RuleValueType;
-}
-
-interface IfElseRuleGroup {
-  id: string;
-  condition: RuleGroupCondition;
-  rules: Array<IfElseRule | IfElseRuleGroup>;
-}
-
-interface IfElseRuleBuilderProps {
-  value: unknown;
-  onChange: (nextValue: IfElseRuleGroup) => void;
-  availableVariables: AvailableVariable[];
-  disabled?: boolean;
-}
-
-const RULE_OPERATOR_OPTIONS: Array<{ value: RuleOperator; label: string }> = [
-  { value: 'equals', label: 'Jest równe' },
-  { value: 'not_equals', label: 'Nie jest równe' },
-  { value: 'greater', label: 'Jest większe niż' },
-  { value: 'greater_or_equal', label: 'Jest większe lub równe' },
-  { value: 'less', label: 'Jest mniejsze niż' },
-  { value: 'less_or_equal', label: 'Jest mniejsze lub równe' },
-  { value: 'contains', label: 'Zawiera' },
-  { value: 'not_contains', label: 'Nie zawiera' },
-  { value: 'starts_with', label: 'Zaczyna się od' },
-  { value: 'ends_with', label: 'Kończy się na' },
-  { value: 'is_empty', label: 'Jest puste' },
-  { value: 'is_not_empty', label: 'Nie jest puste' },
-];
+// If/Else types live in ./nodeForms/IfElseForm
 
 const isSchemaObject = (value: SchemaLeafType | OutputSchema): value is OutputSchema =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
-
-const buildAstId = (prefix: string) =>
-  `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-
-const createEmptyRule = (): IfElseRule => ({
-  id: buildAstId('rule'),
-  field: '',
-  operator: 'equals',
-  value: '',
-  value_type: 'auto',
-});
-
-const createEmptyRuleGroup = (): IfElseRuleGroup => ({
-  id: buildAstId('group'),
-  condition: 'AND',
-  rules: [createEmptyRule()],
-});
-
-const isRuleOperator = (value: unknown): value is RuleOperator =>
-  typeof value === 'string' &&
-  RULE_OPERATOR_OPTIONS.some((option) => option.value === value);
-
-const isRuleValueType = (value: unknown): value is RuleValueType =>
-  value === 'auto' ||
-  value === 'string' ||
-  value === 'number' ||
-  value === 'boolean' ||
-  value === 'date';
-
-const isGroupCondition = (value: unknown): value is RuleGroupCondition =>
-  value === 'AND' || value === 'OR';
-
-const normalizeIfElseRuleTree = (value: unknown): IfElseRuleGroup => {
-  const sanitizeNode = (nodeValue: unknown): IfElseRule | IfElseRuleGroup | null => {
-    if (!nodeValue || typeof nodeValue !== 'object') return null;
-    const node = nodeValue as Record<string, unknown>;
-
-    if (Array.isArray(node.rules)) {
-      const condition = isGroupCondition(node.condition) ? node.condition : 'AND';
-      const normalizedRules = node.rules
-        .map((child) => sanitizeNode(child))
-        .filter((child): child is IfElseRule | IfElseRuleGroup => Boolean(child));
-
-      return {
-        id: typeof node.id === 'string' ? node.id : buildAstId('group'),
-        condition,
-        rules: normalizedRules.length ? normalizedRules : [createEmptyRule()],
-      };
-    }
-
-    const field = typeof node.field === 'string' ? node.field : '';
-    const operator = isRuleOperator(node.operator) ? node.operator : 'equals';
-    const valueAsString =
-      typeof node.value === 'string'
-        ? node.value
-        : node.value == null
-          ? ''
-          : String(node.value);
-    const valueType = isRuleValueType(node.value_type) ? node.value_type : 'auto';
-
-    return {
-      id: typeof node.id === 'string' ? node.id : buildAstId('rule'),
-      field,
-      operator,
-      value: valueAsString,
-      value_type: valueType,
-    };
-  };
-
-  const normalized = sanitizeNode(value);
-  if (normalized && 'condition' in normalized && Array.isArray(normalized.rules)) {
-    return normalized;
-  }
-
-  if (value && typeof value === 'object') {
-    const legacy = value as Record<string, unknown>;
-    const variable = typeof legacy.variable === 'string' ? legacy.variable : '';
-    const operator = isRuleOperator(legacy.operator) ? legacy.operator : 'equals';
-    const targetValue =
-      typeof legacy.value === 'string'
-        ? legacy.value
-        : legacy.value == null
-          ? ''
-          : String(legacy.value);
-
-    if (variable || targetValue) {
-      return {
-        id: buildAstId('group'),
-        condition: 'AND',
-        rules: [
-          {
-            id: buildAstId('rule'),
-            field: variable,
-            operator,
-            value: targetValue,
-            value_type: 'auto',
-          },
-        ],
-      };
-    }
-  }
-
-  return createEmptyRuleGroup();
-};
 
 const buildSchemaFromDotPaths = (paths: string[]): OutputSchema => {
   const result: OutputSchema = {};
@@ -490,275 +332,7 @@ const getAvailableSchemasForNode = (
     }));
 };
 
-function IfElseRuleBuilder({
-  value,
-  onChange,
-  availableVariables,
-  disabled,
-}: IfElseRuleBuilderProps) {
-  const [ast, setAst] = useState<IfElseRuleGroup>(() => normalizeIfElseRuleTree(value));
-
-  useEffect(() => {
-    setAst(normalizeIfElseRuleTree(value));
-  }, [value]);
-
-  const commit = useCallback(
-    (nextAst: IfElseRuleGroup) => {
-      setAst(nextAst);
-      onChange(nextAst);
-    },
-    [onChange]
-  );
-
-  const updateNodeInTree = useCallback(
-    (
-      node: IfElseRule | IfElseRuleGroup,
-      nodeId: string,
-      updater: (current: IfElseRule | IfElseRuleGroup) => IfElseRule | IfElseRuleGroup
-    ): IfElseRule | IfElseRuleGroup => {
-      if (node.id === nodeId) {
-        return updater(node);
-      }
-
-      if ('rules' in node) {
-        return {
-          ...node,
-          rules: node.rules.map((child) => updateNodeInTree(child, nodeId, updater)),
-        };
-      }
-
-      return node;
-    },
-    []
-  );
-
-  const removeNodeInTree = useCallback(
-    (group: IfElseRuleGroup, nodeId: string): IfElseRuleGroup => {
-      const prune = (
-        node: IfElseRule | IfElseRuleGroup
-      ): IfElseRule | IfElseRuleGroup | null => {
-        if (node.id === nodeId) return null;
-        if ('rules' in node) {
-          const nestedRules = node.rules
-            .map((child) => prune(child))
-            .filter((child): child is IfElseRule | IfElseRuleGroup => Boolean(child));
-          return { ...node, rules: nestedRules };
-        }
-        return node;
-      };
-
-      const cleaned = prune(group);
-      if (!cleaned || !('rules' in cleaned)) {
-        return createEmptyRuleGroup();
-      }
-
-      return {
-        ...cleaned,
-        rules: cleaned.rules.length ? cleaned.rules : [createEmptyRule()],
-      };
-    },
-    []
-  );
-
-  const updateRule = (ruleId: string, patch: Partial<IfElseRule>) => {
-    const next = updateNodeInTree(ast, ruleId, (node) => {
-      if (!('field' in node)) return node;
-      return { ...node, ...patch };
-    }) as IfElseRuleGroup;
-    commit(next);
-  };
-
-  const updateGroupCondition = (groupId: string, condition: RuleGroupCondition) => {
-    const next = updateNodeInTree(ast, groupId, (node) => {
-      if (!('rules' in node)) return node;
-      return { ...node, condition };
-    }) as IfElseRuleGroup;
-    commit(next);
-  };
-
-  const addRuleToGroup = (groupId: string) => {
-    const next = updateNodeInTree(ast, groupId, (node) => {
-      if (!('rules' in node)) return node;
-      return { ...node, rules: [...node.rules, createEmptyRule()] };
-    }) as IfElseRuleGroup;
-    commit(next);
-  };
-
-  const addGroupToGroup = (groupId: string) => {
-    const next = updateNodeInTree(ast, groupId, (node) => {
-      if (!('rules' in node)) return node;
-      return { ...node, rules: [...node.rules, createEmptyRuleGroup()] };
-    }) as IfElseRuleGroup;
-    commit(next);
-  };
-
-  const removeNode = (nodeId: string) => {
-    if (nodeId === ast.id) return;
-    commit(removeNodeInTree(ast, nodeId));
-  };
-
-  const renderRule = (rule: IfElseRule, depth: number) => {
-    const shouldHideValueInput =
-      rule.operator === 'is_empty' || rule.operator === 'is_not_empty';
-    return (
-      <div
-        key={rule.id}
-        className="space-y-2 rounded-lg border border-border bg-white p-3 shadow-sm"
-        style={{ marginLeft: `${depth * 8}px` }}
-      >
-        <div className="flex items-center justify-between">
-          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-            Reguła
-          </p>
-          <button
-            type="button"
-            onClick={() => removeNode(rule.id)}
-            disabled={disabled}
-            className="p-1 rounded text-red-500 hover:bg-red-50 disabled:opacity-50"
-            title="Usuń regułę"
-          >
-            <Trash2 className="w-3.5 h-3.5" />
-          </button>
-        </div>
-
-        <VariableInput
-          placeholder="Pole wejściowe (np. {{node_1.amount}})"
-          className="w-full text-xs border-border rounded-md border p-2 shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
-          value={rule.field}
-          onChange={(next) => updateRule(rule.id, { field: next })}
-          availableVariables={availableVariables}
-          disabled={disabled}
-        />
-
-        <div className="grid grid-cols-2 gap-2">
-          <select
-            className="w-full text-xs border-border rounded-md border p-2 bg-white shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/40 disabled:opacity-50"
-            value={rule.operator}
-            onChange={(e) =>
-              updateRule(rule.id, { operator: e.target.value as RuleOperator })
-            }
-            disabled={disabled}
-          >
-            {RULE_OPERATOR_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-          <select
-            className="w-full text-xs border-border rounded-md border p-2 bg-white shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/40 disabled:opacity-50"
-            value={rule.value_type}
-            onChange={(e) =>
-              updateRule(rule.id, { value_type: e.target.value as RuleValueType })
-            }
-            disabled={disabled}
-          >
-            <option value="auto">Typ: Auto</option>
-            <option value="string">Typ: Tekst</option>
-            <option value="number">Typ: Liczba</option>
-            <option value="boolean">Typ: Boolean</option>
-            <option value="date">Typ: Data</option>
-          </select>
-        </div>
-
-        {!shouldHideValueInput && (
-          <VariableInput
-            placeholder="Wartość porównania"
-            className="w-full text-xs border-border rounded-md border p-2 shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
-            value={rule.value}
-            onChange={(next) => updateRule(rule.id, { value: next })}
-            availableVariables={availableVariables}
-            disabled={disabled}
-          />
-        )}
-      </div>
-    );
-  };
-
-  const renderGroup = (group: IfElseRuleGroup, depth = 0, isRoot = false) => {
-    return (
-      <div
-        key={group.id}
-        className="space-y-3 rounded-xl border border-border/80 bg-muted/20 p-3"
-        style={{ marginLeft: `${depth * 8}px` }}
-      >
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <Blocks className="w-3.5 h-3.5 text-primary" />
-            <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              {isRoot ? 'Grupa główna' : 'Grupa'}
-            </span>
-          </div>
-          {!isRoot && (
-            <button
-              type="button"
-              onClick={() => removeNode(group.id)}
-              disabled={disabled}
-              className="p-1 rounded text-red-500 hover:bg-red-50 disabled:opacity-50"
-              title="Usuń grupę"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-            </button>
-          )}
-        </div>
-
-        <div className="flex items-center gap-2">
-          <GitCompareArrows className="w-3.5 h-3.5 text-muted-foreground" />
-          <select
-            className="text-xs border-border rounded-md border p-2 bg-white shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/40 disabled:opacity-50"
-            value={group.condition}
-            onChange={(e) =>
-              updateGroupCondition(group.id, e.target.value as RuleGroupCondition)
-            }
-            disabled={disabled}
-          >
-            <option value="AND">Wszystkie (AND)</option>
-            <option value="OR">Dowolna (OR)</option>
-          </select>
-        </div>
-
-        <div className="space-y-2">
-          {group.rules.map((node) =>
-            'rules' in node ? renderGroup(node, depth + 1) : renderRule(node, depth + 1)
-          )}
-        </div>
-
-        <div className="flex flex-wrap gap-2 pt-1">
-          <button
-            type="button"
-            onClick={() => addRuleToGroup(group.id)}
-            disabled={disabled}
-            className="inline-flex items-center gap-1 rounded-md border border-border bg-white px-2.5 py-1.5 text-[11px] text-foreground hover:bg-muted disabled:opacity-50"
-          >
-            <Plus className="w-3 h-3" />
-            Dodaj regułę
-          </button>
-          <button
-            type="button"
-            onClick={() => addGroupToGroup(group.id)}
-            disabled={disabled}
-            className="inline-flex items-center gap-1 rounded-md border border-border bg-white px-2.5 py-1.5 text-[11px] text-foreground hover:bg-muted disabled:opacity-50"
-          >
-            <Plus className="w-3 h-3" />
-            Dodaj grupę
-          </button>
-        </div>
-      </div>
-    );
-  };
-
-  return (
-    <div className="space-y-3">
-      <div className="p-3 rounded-md border border-primary/20 bg-primary/5">
-        <p className="text-xs text-muted-foreground">
-          Buduj warunki jako drzewo reguł. Każda grupa może używać operatora <b>AND</b>{' '}
-          lub <b>OR</b>.
-        </p>
-      </div>
-      {renderGroup(ast, 0, true)}
-    </div>
-  );
-}
+// If/Else wizard extracted to ./nodeForms/IfElseForm
 
 const nodeBlocks = [
   {
@@ -931,9 +505,23 @@ export default function WorkflowEditor({ onBack, workflowId }: WorkflowEditorPro
   const [collections, setCollections] = useState<CollectionSummary[]>([]);
   const [nodePanelTab, setNodePanelTab] = useState<'config' | 'test'>('config');
   const [testInputJson, setTestInputJson] = useState<string>('{\n  "sample": "value"\n}');
+  const [testInputMode, setTestInputMode] = useState<'simple' | 'json'>('simple');
+  const [testInputFields, setTestInputFields] = useState<
+    Array<{ id: number; key: string; type: 'text' | 'number' | 'boolean' | 'json'; value: string }>
+  >([{ id: Date.now(), key: 'sample', type: 'text', value: 'value' }]);
   const [testResultJson, setTestResultJson] = useState<string>('');
   const [testError, setTestError] = useState<string | null>(null);
   const [isNodeTestRunning, setIsNodeTestRunning] = useState<boolean>(false);
+  const [lastNodeTest, setLastNodeTest] = useState<{
+    at: number;
+    nodeId: string;
+    nodeLabel: string;
+    input: Record<string, unknown>;
+    output: Record<string, unknown>;
+  } | null>(null);
+
+  const [variableCatalog, setVariableCatalog] = useState<AvailableVariable[] | null>(null);
+  const [isVariableCatalogLoading, setIsVariableCatalogLoading] = useState<boolean>(false);
 
   const selectedNode = useMemo(
     () => nodes.find((n) => n.id === selectedNodeId) || null,
@@ -945,7 +533,38 @@ export default function WorkflowEditor({ onBack, workflowId }: WorkflowEditorPro
     [selectedNodeId, nodes, edges]
   );
 
+  useEffect(() => {
+    let cancelled = false;
+
+    const wfId = savedWorkflowId;
+    const nodeId = selectedNodeId;
+    if (!wfId || !nodeId) {
+      setVariableCatalog(null);
+      return;
+    }
+
+    setIsVariableCatalogLoading(true);
+    getVariableCatalog(wfId, nodeId)
+      .then((res) => {
+        if (cancelled) return;
+        setVariableCatalog(res.variables as AvailableVariable[]);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setVariableCatalog(null);
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setIsVariableCatalogLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [savedWorkflowId, selectedNodeId]);
+
   const availableVariables = useMemo(() => {
+    if (variableCatalog) return variableCatalog;
     const vars = availableSchemas.flatMap((nodeSchema) =>
       flattenSchemaToVariables(nodeSchema.schema, nodeSchema.nodeId, nodeSchema.nodeLabel)
     );
@@ -955,7 +574,7 @@ export default function WorkflowEditor({ onBack, workflowId }: WorkflowEditorPro
       return a.label.localeCompare(b.label);
     });
     return vars;
-  }, [availableSchemas]);
+  }, [availableSchemas, variableCatalog]);
 
   const onConnect = useCallback(
     (params: Connection | Edge) => {
@@ -1168,18 +787,66 @@ export default function WorkflowEditor({ onBack, workflowId }: WorkflowEditorPro
     }
 
     let parsedInput: Record<string, unknown>;
-    try {
-      const candidate = JSON.parse(testInputJson || '{}');
-      if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) {
-        setTestError('Input testowy musi być poprawnym obiektem JSON.');
+    if (testInputMode === 'simple') {
+      try {
+        const next: Record<string, unknown> = {};
+
+        for (const field of testInputFields) {
+          const key = String(field.key || '').trim();
+          if (!key) continue;
+
+          const raw = field.value ?? '';
+          if (field.type === 'text') {
+            next[key] = raw;
+            continue;
+          }
+          if (field.type === 'number') {
+            const n = Number(String(raw).trim());
+            if (Number.isNaN(n)) {
+              throw new Error(`Pole "${key}" musi być liczbą.`);
+            }
+            next[key] = n;
+            continue;
+          }
+          if (field.type === 'boolean') {
+            const normalized = String(raw).trim().toLowerCase();
+            if (['true', '1', 'tak', 'yes', 'y'].includes(normalized)) next[key] = true;
+            else if (['false', '0', 'nie', 'no', 'n', ''].includes(normalized)) next[key] = false;
+            else throw new Error(`Pole "${key}" musi być booleanem (tak/nie).`);
+            continue;
+          }
+          if (field.type === 'json') {
+            if (!String(raw).trim()) {
+              next[key] = {};
+              continue;
+            }
+            const v = JSON.parse(String(raw));
+            next[key] = v;
+            continue;
+          }
+        }
+
+        parsedInput = next;
+        setTestInputJson(JSON.stringify(next, null, 2));
+      } catch (e) {
+        setTestError(e instanceof Error ? e.message : 'Nie udało się zbudować inputu testowego.');
         setTestResultJson('');
         return;
       }
-      parsedInput = candidate as Record<string, unknown>;
-    } catch {
-      setTestError('Niepoprawny JSON wejściowy.');
-      setTestResultJson('');
-      return;
+    } else {
+      try {
+        const candidate = JSON.parse(testInputJson || '{}');
+        if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) {
+          setTestError('Input testowy musi być poprawnym obiektem JSON.');
+          setTestResultJson('');
+          return;
+        }
+        parsedInput = candidate as Record<string, unknown>;
+      } catch {
+        setTestError('Niepoprawny JSON wejściowy.');
+        setTestResultJson('');
+        return;
+      }
     }
 
     setIsNodeTestRunning(true);
@@ -1199,7 +866,15 @@ export default function WorkflowEditor({ onBack, workflowId }: WorkflowEditorPro
         input_data: parsedInput,
       });
 
-      setTestResultJson(JSON.stringify(response.output ?? {}, null, 2));
+      const output = (response.output ?? {}) as Record<string, unknown>;
+      setTestResultJson(JSON.stringify(output, null, 2));
+      setLastNodeTest({
+        at: Date.now(),
+        nodeId: selectedNode.id,
+        nodeLabel: String(selectedNode.data.label || selectedNode.id),
+        input: parsedInput,
+        output,
+      });
     } catch (error) {
       console.error(error);
       setTestError(error instanceof Error ? error.message : 'Błąd testowania węzła.');
@@ -1309,7 +984,7 @@ export default function WorkflowEditor({ onBack, workflowId }: WorkflowEditorPro
       case 'if_else':
         return (
           <div className="space-y-4">
-            <IfElseRuleBuilder
+            <IfElseForm
               value={config.rule_tree || config}
               onChange={(nextTree) => updateNodeConfig('rule_tree', nextTree)}
               availableVariables={availableVariables}
@@ -1960,98 +1635,15 @@ export default function WorkflowEditor({ onBack, workflowId }: WorkflowEditorPro
 
       // Formularz węzła Switch
       case 'switch': {
-        const cases = config.cases || [];
-
-        const addCase = () => {
-          const newCases = [
-            ...cases,
-            { id: `case_${Date.now()}`, operator: 'equals', value: '' },
-          ];
-          updateNodeConfig('cases', newCases);
-        };
-
-        const updateCase = (idx: number, field: string, val: string) => {
-          const newCases = [...cases];
-          newCases[idx] = { ...newCases[idx], [field]: val };
-          updateNodeConfig('cases', newCases);
-        };
-
-        const removeCase = (idx: number) => {
-          const newCases = cases.filter((_: any, i: number) => i !== idx);
-          updateNodeConfig('cases', newCases);
-        };
-
         return (
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-foreground">
-                Zmienna wejściowa do sprawdzenia
-              </label>
-              <VariableInput
-                placeholder="np. status_zamowienia"
-                className="w-full text-sm border-border rounded-md shadow-sm p-2.5 border focus:outline-none focus:ring-2 focus:ring-primary/50"
-                value={config.variable || ''}
-                onChange={(value) => updateNodeConfig('variable', value)}
-                availableVariables={availableVariables}
-                disabled={isReadOnly}
-              />
-            </div>
-
-            <div className="space-y-3 mt-4">
-              <label className="text-sm font-medium text-foreground">
-                Ścieżki i warunki
-              </label>
-              {cases.map((c: any, idx: number) => (
-                <div
-                  key={c.id}
-                  className="p-3 border border-border rounded-md bg-white space-y-2 relative shadow-sm"
-                >
-                  <div className="flex justify-between items-center mb-1">
-                    <span className="text-xs font-semibold text-primary">
-                      Wyjście: {c.id}
-                    </span>
-                    <button
-                      onClick={() => removeCase(idx)}
-                      className="text-red-500 hover:text-red-700 bg-red-50 p-1 rounded transition-colors shrink-0"
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
-                  </div>
-                  <select
-                    className="w-full text-xs border-border rounded-md shadow-sm border p-2 focus:outline-none focus:ring-2 focus:ring-primary/50 bg-white"
-                    value={c.operator || 'equals'}
-                    onChange={(e) => updateCase(idx, 'operator', e.target.value)}
-                  >
-                    <option value="equals">Jest równe dokładnie</option>
-                    <option value="greater">Jest większe niż</option>
-                    <option value="less">Jest mniejsze niż</option>
-                    <option value="contains">Zawiera tekst</option>
-                  </select>
-                  <VariableInput
-                    placeholder="Wartość (np. 100 lub 'Opłacone')"
-                    className="w-full text-xs border-border rounded-md shadow-sm p-2 border focus:outline-none focus:ring-2 focus:ring-primary/50"
-                    value={c.value || ''}
-                    onChange={(value) => updateCase(idx, 'value', value)}
-                    availableVariables={availableVariables}
-                    disabled={isReadOnly}
-                  />
-                </div>
-              ))}
-              <button
-                onClick={addCase}
-                className="w-full py-2 text-xs font-medium text-primary border border-primary/30 rounded-md hover:bg-primary/5 transition-colors"
-              >
-                + Dodaj warunek
-              </button>
-              <div className="p-3 bg-muted/50 rounded-lg border border-border mt-2">
-                <p className="text-[10px] text-muted-foreground leading-relaxed">
-                  Zawsze aktywne jest również wyjście{' '}
-                  <span className="font-semibold text-foreground">default</span>, którym
-                  polecą dane, jeśli żaden z powyższych warunków nie zostanie spełniony.
-                </p>
-              </div>
-            </div>
-          </div>
+          <SwitchForm
+            value={config}
+            onChange={(patch) => {
+              Object.entries(patch).forEach(([key, val]) => updateNodeConfig(key, val));
+            }}
+            availableVariables={availableVariables}
+            disabled={isReadOnly}
+          />
         );
       }
 
@@ -2477,21 +2069,224 @@ export default function WorkflowEditor({ onBack, workflowId }: WorkflowEditorPro
               <div className="p-4 flex-1 overflow-y-auto">
                 {nodePanelTab === 'config' ? (
                   <div className={isReadOnly ? 'opacity-60 pointer-events-none' : ''}>
+                    {isVariableCatalogLoading && (
+                      <div className="mb-3 rounded-md border border-border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+                        Ładuję katalog danych (zmienne)…
+                      </div>
+                    )}
                     {renderConfigForm()}
                   </div>
                 ) : (
                   <div className="space-y-4">
                     <div>
-                      <label className="text-sm font-medium text-foreground">
-                        Input JSON
-                      </label>
-                      <textarea
-                        className="mt-2 w-full min-h-[200px] rounded-md border border-border bg-white p-3 font-mono text-xs focus:outline-none focus:ring-2 focus:ring-primary/30"
-                        value={testInputJson}
-                        onChange={(event) => setTestInputJson(event.target.value)}
-                        placeholder='{\n  "foo": "bar"\n}'
-                      />
+                      <div className="flex items-center justify-between gap-2">
+                        <label className="text-sm font-medium text-foreground">
+                          Dane testowe
+                        </label>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setTestInputMode((m) => (m === 'simple' ? 'json' : 'simple'))
+                            }
+                            className="text-xs px-3 py-1.5 rounded-md border border-border bg-white hover:bg-muted transition-colors"
+                          >
+                            {testInputMode === 'simple'
+                              ? 'Zaawansowane (JSON)'
+                              : 'Tryb prosty'}
+                          </button>
+                          {testInputMode === 'simple' && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setTestInputFields([
+                                  {
+                                    id: Date.now(),
+                                    key: 'sample',
+                                    type: 'text',
+                                    value: 'value',
+                                  },
+                                ])
+                              }
+                              className="text-xs px-3 py-1.5 rounded-md border border-border bg-white hover:bg-muted transition-colors"
+                            >
+                              Wyczyść
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      {testInputMode === 'simple' ? (
+                        <div className="mt-2 space-y-2">
+                          <div className="rounded-md border border-border bg-muted/20 p-3">
+                            <p className="text-xs text-muted-foreground leading-relaxed">
+                              Wpisz proste pary <b>pole → wartość</b>. System sam zbuduje
+                              obiekt wejściowy do testu.
+                            </p>
+                          </div>
+
+                          {testInputFields.map((field, idx) => (
+                            <div key={field.id} className="flex gap-2 items-center">
+                              <input
+                                className="w-2/5 text-xs border-border rounded-md border p-2 bg-white shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                                placeholder="Pole (np. email.subject)"
+                                value={field.key}
+                                onChange={(e) => {
+                                  const next = [...testInputFields];
+                                  next[idx] = { ...next[idx], key: e.target.value };
+                                  setTestInputFields(next);
+                                }}
+                              />
+                              <select
+                                className="w-1/5 text-xs border-border rounded-md border p-2 bg-white shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                                value={field.type}
+                                onChange={(e) => {
+                                  const next = [...testInputFields];
+                                  next[idx] = {
+                                    ...next[idx],
+                                    type: e.target.value as
+                                      | 'text'
+                                      | 'number'
+                                      | 'boolean'
+                                      | 'json',
+                                  };
+                                  setTestInputFields(next);
+                                }}
+                              >
+                                <option value="text">Tekst</option>
+                                <option value="number">Liczba</option>
+                                <option value="boolean">Tak/Nie</option>
+                                <option value="json">JSON</option>
+                              </select>
+                              <div className="w-2/5">
+                                <VariableInput
+                                  className="w-full text-xs border-border rounded-md border p-2 bg-white shadow-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                                  placeholder={
+                                    field.type === 'boolean'
+                                      ? 'tak / nie'
+                                      : field.type === 'json'
+                                        ? '{"foo":"bar"}'
+                                        : 'Wartość'
+                                  }
+                                  value={field.value}
+                                  onChange={(value) => {
+                                    const next = [...testInputFields];
+                                    next[idx] = { ...next[idx], value };
+                                    setTestInputFields(next);
+                                  }}
+                                  availableVariables={availableVariables}
+                                  disabled={isReadOnly}
+                                />
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setTestInputFields((prev) =>
+                                    prev.length === 1 ? prev : prev.filter((_, i) => i !== idx)
+                                  )
+                                }
+                                className="shrink-0 p-2 rounded-md border border-border bg-white hover:bg-red-50 text-red-600 transition-colors"
+                                title="Usuń wiersz"
+                              >
+                                <X className="w-4 h-4" />
+                              </button>
+                            </div>
+                          ))}
+
+                          <div className="flex gap-2">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setTestInputFields((prev) => [
+                                  ...prev,
+                                  { id: Date.now(), key: '', type: 'text', value: '' },
+                                ])
+                              }
+                              className="text-xs px-3 py-2 rounded-md border border-border bg-white hover:bg-muted transition-colors"
+                            >
+                              + Dodaj pole
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const preview: Record<string, unknown> = {};
+                                testInputFields.forEach((f) => {
+                                  const k = String(f.key || '').trim();
+                                  if (!k) return;
+                                  preview[k] = f.value;
+                                });
+                                setTestInputJson(JSON.stringify(preview, null, 2));
+                              }}
+                              className="text-xs px-3 py-2 rounded-md border border-border bg-white hover:bg-muted transition-colors"
+                            >
+                              Podgląd JSON
+                            </button>
+                          </div>
+
+                          <pre className="rounded-md border border-border bg-muted/30 p-3 font-mono text-[11px] text-foreground whitespace-pre-wrap wrap-break-word">
+                            {testInputJson}
+                          </pre>
+                        </div>
+                      ) : (
+                        <div className="mt-2 space-y-2">
+                          <div className="rounded-md border border-border bg-muted/20 p-3">
+                            <p className="text-xs text-muted-foreground leading-relaxed">
+                              Tryb zaawansowany: edytujesz surowy JSON wejściowy.
+                            </p>
+                          </div>
+                          <textarea
+                            className="w-full min-h-[220px] rounded-md border border-border bg-white p-3 font-mono text-xs focus:outline-none focus:ring-2 focus:ring-primary/30"
+                            value={testInputJson}
+                            onChange={(event) => setTestInputJson(event.target.value)}
+                            placeholder='{\n  "sample": "value"\n}'
+                          />
+                        </div>
+                      )}
                     </div>
+
+                    {lastNodeTest && lastNodeTest.nodeId === selectedNode.id && (
+                      <div className="rounded-xl border border-border bg-white shadow-sm overflow-hidden">
+                        <div className="px-3 py-2 border-b border-border bg-muted/20 flex items-center justify-between">
+                          <div>
+                            <p className="text-xs font-semibold text-foreground">
+                              Podgląd danych (ostatni test)
+                            </p>
+                            <p className="text-[10px] text-muted-foreground">
+                              {lastNodeTest.nodeLabel}
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setTestInputMode('json');
+                              setTestInputJson(JSON.stringify(lastNodeTest.output ?? {}, null, 2));
+                            }}
+                            className="text-xs px-3 py-1.5 rounded-md border border-border bg-white hover:bg-muted transition-colors"
+                            title="Skopiuj output jako input"
+                          >
+                            Użyj outputu jako input
+                          </button>
+                        </div>
+                        <div className="p-3 space-y-3">
+                          <div>
+                            <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-2">
+                              Input
+                            </p>
+                            <pre className="rounded-md border border-border bg-muted/30 p-3 font-mono text-[11px] text-foreground whitespace-pre-wrap wrap-break-word">
+                              {JSON.stringify(lastNodeTest.input ?? {}, null, 2)}
+                            </pre>
+                          </div>
+                          <div>
+                            <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-2">
+                              Output
+                            </p>
+                            <pre className="rounded-md border border-border bg-muted/30 p-3 font-mono text-[11px] text-foreground whitespace-pre-wrap wrap-break-word">
+                              {JSON.stringify(lastNodeTest.output ?? {}, null, 2)}
+                            </pre>
+                          </div>
+                        </div>
+                      </div>
+                    )}
 
                     <button
                       onClick={handleTestSelectedNode}

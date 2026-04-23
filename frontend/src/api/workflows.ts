@@ -22,7 +22,7 @@ export async function createWorkflow(workflowData: any): Promise<Workflow> {
   return apiRequest<Workflow>('/workflows/', {
     method: 'POST',
     body: JSON.stringify(workflowData),
-  })
+  });
 }
 
 export async function listWorkflows(): Promise<Workflow[]> {
@@ -33,24 +33,50 @@ export async function listExecutions(): Promise<any[]> {
   return apiRequest<any[]>('/workflows/executions');
 }
 
-export async function getExecutionDetails(workflowId: string, executionId: string): Promise<any> {
+export async function getExecutionDetails(
+  workflowId: string,
+  executionId: string
+): Promise<any> {
   return apiRequest<any>(`/workflows/${workflowId}/executions/${executionId}`);
 }
 
 export async function executeWorkflowTest(workflowId: string): Promise<any> {
-  return apiRequest<any>(`/workflows/${workflowId}/execute`, {method: 'POST'});
+  return apiRequest<any>(`/workflows/${workflowId}/execute`, { method: 'POST' });
+}
+
+export interface TestWorkflowNodeRequest {
+  type: string;
+  subtype: string;
+  config: Record<string, unknown>;
+  input_data: Record<string, unknown>;
+}
+
+export interface TestWorkflowNodeResponse {
+  status: string;
+  node_type: string;
+  node_subtype: string;
+  output: Record<string, unknown>;
+}
+
+export async function testWorkflowNode(
+  payload: TestWorkflowNodeRequest
+): Promise<TestWorkflowNodeResponse> {
+  return apiRequest<TestWorkflowNodeResponse>('/workflows/test-node', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
 }
 
 export async function publishWorkflow(workflowId: string): Promise<Workflow> {
-  return apiRequest<Workflow>(`/workflows/${workflowId}/publish`, {method: 'PUT'});
+  return apiRequest<Workflow>(`/workflows/${workflowId}/publish`, { method: 'PUT' });
 }
 
 export async function deleteWorkflow(workflowId: string): Promise<any> {
-  return apiRequest<any>(`/workflows/${workflowId}`, {method: 'DELETE'});
+  return apiRequest<any>(`/workflows/${workflowId}`, { method: 'DELETE' });
 }
 
 export async function resumeWorkflow(workflowId: string): Promise<any> {
-  return apiRequest<any>(`/workflows/${workflowId}/resume`, {method: 'POST'});
+  return apiRequest<any>(`/workflows/${workflowId}/resume`, { method: 'POST' });
 }
 
 export async function toggleWorkflow(workflowId: string): Promise<Workflow> {
@@ -72,7 +98,9 @@ export interface WorkflowStatsResponse {
 }
 
 export async function getWorkflowStats(days: number = 7): Promise<WorkflowStatsResponse> {
-  return apiRequest<WorkflowStatsResponse>(`/workflows/stats?days=${encodeURIComponent(String(days))}`);
+  return apiRequest<WorkflowStatsResponse>(
+    `/workflows/stats?days=${encodeURIComponent(String(days))}`
+  );
 }
 
 export interface WorkflowLogItem {
@@ -91,5 +119,7 @@ export interface WorkflowLogsResponse {
 }
 
 export async function getWorkflowLogs(limit: number = 50): Promise<WorkflowLogsResponse> {
-  return apiRequest<WorkflowLogsResponse>(`/workflows/logs?limit=${encodeURIComponent(String(limit))}`);
+  return apiRequest<WorkflowLogsResponse>(
+    `/workflows/logs?limit=${encodeURIComponent(String(limit))}`
+  );
 }

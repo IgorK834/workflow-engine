@@ -835,15 +835,27 @@ const nodeBlocks = [
     ],
   },
   {
-    category: 'Akcje',
+    category: 'Integracje (Aplikacje)',
     items: [
       {
         type: 'action',
         subtype: 'slack_msg',
-        label: 'Wyślij na Slack',
+        label: 'Slack: Wyślij wiadomość',
         icon: MessageSquare,
-        description: 'Powiadomienie',
+        description: 'Prosty webhook Slack',
       },
+      {
+        type: 'action',
+        subtype: 'jira_create_ticket',
+        label: 'Jira: Utwórz Ticket',
+        icon: Trello,
+        description: 'Tworzy zgłoszenie w JIRA',
+      },
+    ],
+  },
+  {
+    category: 'Akcje',
+    items: [
       {
         type: 'action',
         subtype: 'send_email',
@@ -885,13 +897,6 @@ const nodeBlocks = [
         label: 'Mapowanie Danych',
         icon: FileJson,
         description: 'Transformacja JSON',
-      },
-      {
-        type: 'action',
-        subtype: 'jira_create_ticket',
-        label: 'Jira: Utwórz Ticket',
-        icon: Trello,
-        description: 'Tworzy zgłoszenie w JIRA',
       },
       {
         type: 'action',
@@ -1264,16 +1269,20 @@ export default function WorkflowEditor({ onBack, workflowId }: WorkflowEditorPro
           <div className="space-y-4">
             <div className="space-y-2">
               <label className="text-sm font-medium text-foreground">
-                Gdzie wysłać powiadomienie?
+                Webhook URL (Slack)
               </label>
               <VariableInput
-                placeholder="np. #ogolny lub @janek"
+                placeholder="https://hooks.slack.com/services/..."
                 className="w-full text-sm border-border rounded-md shadow-sm p-2.5 border focus:outline-none focus:ring-2 focus:ring-primary/50"
-                value={config.channel || ''}
-                onChange={(value) => updateNodeConfig('channel', value)}
+                value={config.webhook_url || ''}
+                onChange={(value) => updateNodeConfig('webhook_url', value)}
                 availableVariables={availableVariables}
                 disabled={isReadOnly}
               />
+              <p className="text-[10px] text-muted-foreground mt-1">
+                Kanał i uprawnienia wynikają z webhooka. Możesz wkleić URL ręcznie lub
+                zbudować go z użyciem zmiennych.
+              </p>
             </div>
             <div className="space-y-2">
               <label className="text-sm font-medium text-foreground">
@@ -1289,6 +1298,10 @@ export default function WorkflowEditor({ onBack, workflowId }: WorkflowEditorPro
                 availableVariables={availableVariables}
                 disabled={isReadOnly}
               />
+              <p className="text-[10px] text-muted-foreground mt-1">
+                W treści możesz używać zmiennych z poprzednich kroków, np.{' '}
+                <code className="font-mono">{'{{node_1.subject}}'}</code>.
+              </p>
             </div>
           </div>
         );
@@ -2490,7 +2503,7 @@ export default function WorkflowEditor({ onBack, workflowId }: WorkflowEditorPro
                     </button>
 
                     {testError && (
-                      <pre className="rounded-md border border-red-200 bg-red-50 p-3 text-xs text-red-700 whitespace-pre-wrap break-words">
+                      <pre className="rounded-md border border-red-200 bg-red-50 p-3 text-xs text-red-700 whitespace-pre-wrap wrap-break-word">
                         {testError}
                       </pre>
                     )}
@@ -2499,7 +2512,7 @@ export default function WorkflowEditor({ onBack, workflowId }: WorkflowEditorPro
                       <label className="text-sm font-medium text-foreground">
                         Odpowiedź
                       </label>
-                      <pre className="mt-2 min-h-[140px] rounded-md border border-border bg-muted/30 p-3 font-mono text-xs text-foreground whitespace-pre-wrap break-words">
+                      <pre className="mt-2 min-h-[140px] rounded-md border border-border bg-muted/30 p-3 font-mono text-xs text-foreground whitespace-pre-wrap wrap-break-word">
                         {testResultJson || 'Brak odpowiedzi — uruchom test.'}
                       </pre>
                     </div>

@@ -50,7 +50,7 @@ async def test_execute_http_request_mocks_httpx_async_client() -> None:
         )
 
     assert result["status_code"] == 200
-    assert result["response"] == {"ok": True}
+    assert result["body"] == {"ok": True}
     assert result["request_url"] == "https://example.com/api"
     mock_client.request.assert_awaited_once()
     call_kwargs = mock_client.request.await_args
